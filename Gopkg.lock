@@ -8,6 +8,54 @@
   revision = "bfa12eebf7161a928e20d11a627cc689e99e2e50"
 
 [[projects]]
+  branch = "dev"
+  name = "github.com/AsynkronIT/protoactor-go"
+  packages = [
+    "actor",
+    "eventstream",
+    "internal/queue/goring",
+    "internal/queue/mpsc",
+    "log",
+    "mailbox"
+  ]
+  revision = "35a7be66c710ff6070c7dfc429ca47dd5164f360"
+
+[[projects]]
+  name = "github.com/Workiva/go-datastructures"
+  packages = ["queue"]
+  revision = "900cfe0fd2681ca34fa97071e8fcf4f623679104"
+  version = "v1.0.44"
+
+[[projects]]
+  name = "github.com/emirpasic/gods"
+  packages = [
+    "containers",
+    "lists",
+    "lists/singlylinkedlist",
+    "stacks",
+    "stacks/linkedliststack",
+    "utils"
+  ]
+  revision = "f6c17b524822278a87e3b3bd809fec33b51f5b46"
+  version = "v1.9.0"
+
+[[projects]]
+  name = "github.com/gogo/protobuf"
+  packages = [
+    "gogoproto",
+    "proto",
+    "protoc-gen-gogo/descriptor"
+  ]
+  revision = "1adfc126b41513cc696b209667c8656ea7aac67c"
+  version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/orcaman/concurrent-map"
+  packages = ["."]
+  revision = "d4c23bd0e01134806215ffe65ba3fd22ec6721f7"
+
+[[projects]]
   name = "github.com/victorcoder/dkron"
   packages = ["cron"]
   revision = "24393e00c0391007bb0e10f1bdc0f270fc262899"
@@ -16,6 +64,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "fbd8affc67fc02d662a4910c681bbc82da73e3bc228bfbc158222b7eec6edac1"
+  inputs-digest = "920db64791963f3bad70f5be7f5371026cc00ab8d23a23b6e446887c2d3e1de0"
   solver-name = "gps-cdcl"
   solver-version = 1
