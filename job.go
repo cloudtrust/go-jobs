@@ -31,11 +31,11 @@ type Job struct {
 type Option func(*Job) error
 
 // Steps is a syntaxic sugar for definition of a slice of Step.
-func Steps(s ...Step) []Step{
+func Steps(s ...Step) []Step {
 	return s
 }
 
-// NewJob return a new Job.
+// NewJob returns a new Job.
 func NewJob(name string, steps []Step, options ...Option) (*Job, error) {
 	if len(name) == 0 {
 		return nil, fmt.Errorf("Job's name cannot be empty")
@@ -46,11 +46,11 @@ func NewJob(name string, steps []Step, options ...Option) (*Job, error) {
 	}
 
 	var job = &Job{
-		name: name,
-		steps: steps,
-		cleanupStep: nil,
+		name:             name,
+		steps:            steps,
+		cleanupStep:      nil,
 		executionTimeout: 0,
-		normalDuration: 0,
+		normalDuration:   0,
 	}
 
 	// Apply options to the job
@@ -76,7 +76,7 @@ func (j *Job) Steps() []Step {
 }
 
 // CleanupStep is the option used to set a step of cleanup
-func CleanupStep(s Step) Option{
+func CleanupStep(s Step) Option {
 	return func(j *Job) error {
 		j.cleanupStep = s
 		return nil
@@ -84,7 +84,7 @@ func CleanupStep(s Step) Option{
 }
 
 // NormalDuration is the option used to set the normal duration of job execution
-func NormalDuration(d time.Duration) Option{
+func NormalDuration(d time.Duration) Option {
 	return func(j *Job) error {
 		j.normalDuration = d
 		return nil
