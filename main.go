@@ -3,13 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	_ "github.com/lib/pq"
-	"github.com/pkg/errors"
 )
 
 func main() {
@@ -28,44 +26,25 @@ func main() {
 	}
 
 	db.Exec("DROP table jobs")
+	db.Exec(createJobsTblStmt)
 
-	// Create the "accounts" table.
-	createTbl, err := readStmtFromFile("create_table.sql")
-	if err != nil {
-		logger.Log("msg", "could not read stmt", "error", err.Error())
-		return
-	}
-	if _, err := db.Exec(createTbl); err != nil {
-		logger.Log("msg", "could not create table", "error", err.Error())
-		return
-	}
+	var lock = New(db, "keycloak_bridge", "bridgeID", "backup", "backupID")
 
-	// Insert two rows into the "accounts" table.
-	insertStmt, err := readStmtFromFile("insert.sql")
-	if err != nil {
-		logger.Log("msg", "could not read stmt", "error", err.Error())
-		return
-	}
-	if _, err := db.Exec(insertStmt, "keycloak", "backup", "1234", "5678", "COMPLETED", time.Now(), time.Duration(1*time.Hour), time.Now(), "message", "step", time.Now(), time.Now(), time.Duration(3*time.Hour), "OK"); err != nil {
-		logger.Log("msg", "could not insert rows", "error", err.Error())
-		return
-	}
+	_ = lock
+	/*
+		if _, err := db.Exec(insertJobStmt, "keycloak", "backup", "1234", "5678", "COMPLETED", time.Now(), time.Duration(1*time.Hour), time.Now(), "message", "step", time.Now(), time.Now(), time.Duration(3*time.Hour), "OK"); err != nil {
+			logger.Log("msg", "could not insert rows", "error", err.Error())
+			return
+		}
 
-	print(db, logger)
-
-	// Update.
-	updateStmt, err := readStmtFromFile("update.sql")
-	if err != nil {
-		logger.Log("msg", "could not read stmt", "error", err.Error())
-		return
-	}
-	if res, err := db.Exec(updateStmt, "STARTING", "keycloak", "backup"); err != nil {
-		logger.Log("msg", "could not update", "error", err.Error())
-		return
-	} else {
-		fmt.Println(res.RowsAffected())
-	}
-	print(db, logger)
+		// Update.
+		if res, err := db.Exec(updateStmt, "STARTING", "keycloak", "backup"); err != nil {
+			logger.Log("msg", "could not update", "error", err.Error())
+			return
+		} else {
+			fmt.Println(res.RowsAffected())
+		}
+		print(db, logger)*/
 }
 
 func print(db *sql.DB, logger log.Logger) {
@@ -87,12 +66,4 @@ func print(db *sql.DB, logger log.Logger) {
 		}
 		fmt.Printf("%v %v %v %v %v %v %v %v %v %v %v %v %v %v\n", component_name, job_name, job_id, worker_id, status, start_time, max_duration, last_update, message, step_state, last_execution, last_execution_success, last_execution_duration, last_execution_status)
 	}
-}
-
-func readStmtFromFile(fileName string) (string, error) {
-	var data, err = ioutil.ReadFile(fileName)
-	if err != nil {
-		return "", errors.Wrap(err, "could not read file")
-	}
-	return string(data), nil
 }
