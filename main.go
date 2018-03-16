@@ -68,14 +68,19 @@ func main() {
 	// job.AfterEachStep(logging)
 	//job.Run()
 
-	var job = NewJob("job1", job1Func, 2* time.Second, job1Func, job2Func, job3Func)
+	var job, err = NewJob("Job1", Steps(job1Func, job2Func, job3Func), ExecutionTimeout(1 * time.Second))
+
+
+	
+	if err != nil {
+		panic(err)
+	}
 
 	var scheduler, _ = NewScheduler()
 
 	scheduler.Register("test1", job)
 	scheduler.AddTask("0/10 * * * * *", "test1")
 	scheduler.Start()
-
 	// scheduler.Register(job)
 	// scheduler.AddTask("@minutely", job.Id)
 	// scheduler.AddTask("0 0 0 * * *", job.Id)
