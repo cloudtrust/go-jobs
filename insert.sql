@@ -1,0 +1,1 @@
+INSERT INTO jobs (component_name, component_id, job_name, job_id, status, start_time, max_duration, last_update, message, step_state, last_execution, last_execution_success, last_execution_duration, last_execution_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
