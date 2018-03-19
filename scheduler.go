@@ -1,26 +1,40 @@
-package main
+package job
 
 import (
 	"fmt"
-	"log"
+	"reflect"
+	"runtime"
+	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/victorcoder/dkron/cron"
 )
 
+const (
+	normalExecution   = 0
+	EXECUTION_TIMEOUT = 1
+	SUICIDE_TIMEOUT   = 2
+)
+
 // Scheduler is main entry point.
 type Scheduler struct {
-	cron        *cron.Cron
-	masterActor *actor.PID
+	cron           *cron.Cron
+	masterActor    *actor.PID
+	lockType       int
+	noDB           bool
+	suicideTimeout time.Duration
 }
+
+// SchedulerOption is used to configure the Scheduler. It takes on argument: the Scheduler we are operating on.
+type SchedulerOption func(*Scheduler) error
 
 // NewScheduler returns a new scheduler.
 // TODO options
 // DB connection param
 // Local lock mode vs DistributedLock mode
 // Kill timeout
-func NewScheduler() (*Scheduler, error) {
-	var props = actor.FromProducer(newMasterActor).WithSupervisor(masterActorSupervisorStrategy).WithGuardian(masterActorGuardianStrategy)
+func NewScheduler(options ...SchedulerOption) (*Scheduler, error) {
+	var props = actor.FromProducer(newMasterActor).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
 	var pid = actor.Spawn(props)
 
 	var s = &Scheduler{
@@ -28,12 +42,20 @@ func NewScheduler() (*Scheduler, error) {
 		masterActor: pid,
 	}
 
+	// Apply options to the scheduler
+	for _, opt := range options {
+		var err = opt(s)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return s, nil
 }
 
 // Register a job.
 func (s *Scheduler) Register(id string, j *Job) {
-	s.masterActor.Tell(&Register{id, j})
+	s.masterActor.Tell(&RegisterJob{id, j})
 }
 
 // AddTask schedule a run for the job.
@@ -43,14 +65,14 @@ func (s *Scheduler) AddTask(cron string, id string) {
 	})
 }
 
-// // Start the cron
-// func (s *Scheduler) Start() {
-// 	s.cron.Start()
-// }
+// Start the cron
+func (s *Scheduler) Start() {
+	s.cron.Start()
+}
 
-// func (s *Scheduler) Stop() {
-// 	s.cron.Stop()
-// }
+func (s *Scheduler) Stop() {
+	s.cron.Stop()
+}
 
 // DisableAll disables execution for all jobs.
 func (s *Scheduler) DisableAll() {
@@ -78,34 +100,49 @@ type masterActor struct {
 	workers map[string]*actor.PID
 }
 type workerActor struct {
-	job *Job
+	job                *Job
+	currentTimeoutType int
+	occupied           bool
 }
 type runnerActor struct{}
 
 /* MasterActor Messages */
 
 // RegisterJob message sent to MasterActor to register a job.
-type registerJob struct {
+type RegisterJob struct {
 	label string
 	job   *Job
 }
 
 // StartJob message sent to MasterActor to specified job.
-type startJob struct {
+type StartJob struct {
 	label string
 }
 
 /* WorkerActor Messages */
 
-type Execute struct {}
+type Execute struct{}
 
+type Status struct {
+	status  string
+	message string
+}
 
+type HeartBeat struct {
+	StepInfos map[string]string
+}
 
 /* RunnerActor Messages */
 
-type Status struct{}
+type Run struct {
+	job *Job
+}
 
-type Heartbeat struct{}
+type NextStep struct {
+	job       *Job
+	i         int
+	stepInfos map[string]string
+}
 
 /* Actor builders */
 
@@ -131,126 +168,141 @@ func newRunnerActor() actor.Actor {
 
 func (state *masterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
-	case *registerJob:
-		var props = actor.FromProducer(newWorkerActorBuilder(msg.job)).WithSupervisor(actor.NewOneForOneStrategy(10, 1000, decider))
+	case *RegisterJob:
+		var props = actor.FromProducer(newWorkerActorBuilder(msg.job)).WithSupervisor(masterActorSupervisorStrategy())
 		var worker = context.Spawn(props)
 		state.workers[msg.label] = worker
-	case *startJob:
+	case *StartJob:
 		state.workers[msg.label].Tell(&Execute{})
 	}
 }
 
 /* Worker Actor Logic*/
 
-func (state *WorkerActor) Receive(context actor.Context) {
-	switch context.Message().(type) {
+func (state *workerActor) Receive(context actor.Context) {
+	switch message := context.Message().(type) {
 	case *Execute:
+		if state.occupied {
+			fmt.Println("OCCUPIED")
+			return
+		}
+		state.occupied = true
 		// if DistributedLock
-			// 1. CleanupPhase
+		// 1. CleanupPhase
 
-			// 2. ReservationPhase
+		// 2. ReservationPhase
 
-			// 3. ExecutionPhase
+		// 3. ExecutionPhase
 
 		// else
-			// SwitchBehavior to OCCUPIED or Switch a flag in state of the actor
-			//context.SetBehavior(state.ReceiveOccupied)
+		// SwitchBehavior to OCCUPIED or Switch a flag in state of the actor
+		//context.SetBehavior(state.ReceiveOccupied)
 
 		// Set NormalExecutionTimeout
+		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.executionTimeout)
 		// Spawn Runner
 		// TODO with specific worker supervisor
-		props := actor.FromProducer(newRunnerActor).WithSupervisor(actor.NewOneForOneStrategy(10, 1000, decider))
+		props := actor.FromProducer(newRunnerActor)
 		runner := context.Spawn(props)
 		// Tell Run to Runner
 		runner.Tell(&Run{state.job})
 	case *Status:
 		fmt.Println("Status")
-
-	case *Heartbeat:
+	case *HeartBeat:
 		//context.SetBehavior(state.ReceiveOccupied)
 		fmt.Println("Heartbeat")
+		var s = message.StepInfos
+		fmt.Println(s)
 
 	case *actor.ReceiveTimeout:
-		//TODO store the kind of timeout (in state of the actor ?)
-		// Check reason of timeout
-
-		// if normal execution
-		// Set timeout to Timeout - NormalExecution (Perform some check about the result of this ccomputation)
-		context.SetReceiveTimeout(state.job.executionTimeout)
-		// TODO Logging
-		
-		// if exec timeout
-		// set timeout to KillTimeout - timeout -NormalExecution
-		context.SetReceiveTimeout(state.job.executionTimeout)
-		// Stop children
-		context.Children()[0].Stop()
-
-		// if kill timeout
-		// KIll all !!!!! 
-		panic("kill timeout")
+		switch state.currentTimeoutType {
+		case normalExecution:
+			//TODO LOG the info about normal execution exceeded
+			state.currentTimeoutType = EXECUTION_TIMEOUT
+			context.SetReceiveTimeout(state.job.executionTimeout)
+		case EXECUTION_TIMEOUT:
+			state.currentTimeoutType = SUICIDE_TIMEOUT
+			context.SetReceiveTimeout(100 * time.Second)
+			context.Children()[0].Stop()
+		case SUICIDE_TIMEOUT:
+			panic("SUICIDE_TIMEOUT")
+		default:
+			panic("UNKNOWN_TIMEOUT")
+		}
 	}
 }
-
 
 /* Runner Actor Logic*/
 
-func (state *RunnerActor) Receive(context actor.Context) {
+func (state *runnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *Run:
-		fmt.Println("Run received in RUNNER")
-		err := RunJob(msg.job, context.Parent())
-		if err == nil {
-			context.Parent().Tell(&Status{})
-		} else {
-			context.Parent().Tell(&Status{})
+
+		//Initialize map Step Status
+
+		//TODO est ce que on stocke stepInfo dans le state ou on le passe dans le message
+		//-> voir si il y a un impact lors d'un restart?
+		var stepInfos = make(map[string]string)
+
+		for _, step := range msg.job.steps {
+			//TODO check comment avoir le nom de la fonction
+			fmt.Println(stepName(step))
+			stepInfos[stepName(step)] = "Iddle"
 		}
-	case *actor.Stopping:
-		fmt.Println("Stopping")
-	default:
-		fmt.Printf("Default %T", msg)
-	}
-}
 
-func RunJob(j *Job, heartbeatTarget *actor.PID) error {
-	heartbeatTarget.Tell(&Heartbeat{})
-	var err error
+		i := 0
+		context.Self().Tell(&NextStep{msg.job, i, stepInfos})
 
-	for _, step := range j.steps {
-		err = step(nil, nil)
-		heartbeatTarget.Tell(&Heartbeat{})
+	case *NextStep:
+		var step = msg.job.steps[msg.i]
+		var infos = msg.stepInfos
+		infos[stepName(step)] = "Running"
+		context.Parent().Tell(&HeartBeat{infos})
+
+		//TODO changer Step pour que retourne interface{}, error
+		//-> Ainsi possibilité de transmettre des infos d'un step à l'autre
+		//ça facilitera le découpage en step plus petit
+		var _, err = step(nil, nil)
 
 		if err != nil {
-			break
+			infos[stepName(step)] = "Failed"
+			context.Parent().Tell(&HeartBeat{infos})
+
+			context.Parent().Tell(&Status{"Failure", "err"})
+			return
 		}
-	}
 
-	if err != nil {
-		j.cleanupStep(nil, nil)
-		heartbeatTarget.Tell(&Heartbeat{})
-	}
+		infos[stepName(step)] = "Completed"
+		context.Parent().Tell(&HeartBeat{infos})
 
-	return err
+		var i = msg.i + 1
+
+		if i >= len(msg.job.steps) {
+			context.Parent().Tell(&Status{"Done", "mess"})
+			return
+		}
+
+		// TODO transamettre val (le retour de step) dans le message
+		// Ajouter val au context car on veut un contexte tout le temps
+		context.Self().Tell(&NextStep{msg.job, i, infos})
+	}
 }
-
-
-
 
 /* Actor Utils */
 
-func Logger(next actor.ActorFunc) actor.ActorFunc{
-	fn := func(ctx actor.Context){
-		message := c.Message()
-		log.Printf("%v got %v %+v", c.Self(), reflect.TypeOf(message), message)
-		next(c)
-	}
+// func Logger(next actor.ActorFunc) actor.ActorFunc {
+// 	fn := func(ctx actor.Context) {
+// 		message := c.Message()
+// 		log.Printf("%v got %v %+v", c.Self(), reflect.TypeOf(message), message)
+// 		next(c)
+// 	}
 
-	return fn
-}
+// 	return fn
+// }
 
-
-func masterActorSupervisorStrategy() actor.SupervisorStrategy{
-	actor.NewOneForOneStrategy(10, 1000, masterActorDecider)
+func masterActorSupervisorStrategy() actor.SupervisorStrategy {
+	return actor.NewOneForOneStrategy(10, 1000, masterActorDecider)
 }
 
 func masterActorDecider(reason interface{}) actor.Directive {
@@ -262,10 +314,14 @@ func masterActorDecider(reason interface{}) actor.Directive {
 	}
 }
 
-func masterActorGuardianStrategy() actor.SupervisorStrategy{
-	actor.NewOneForOneStrategy(10, 1000, alwaysPanicDecider)
+func masterActorGuardianStrategy() actor.SupervisorStrategy {
+	return actor.NewOneForOneStrategy(10, 1000, alwaysPanicDecider)
 }
 
-func alwaysPanicDecider(reason interface{}) actor.Directive{
+func alwaysPanicDecider(reason interface{}) actor.Directive {
 	panic("MasterActor guardian killed itself")
+}
+
+func stepName(s Step) string {
+	return runtime.FuncForPC(reflect.ValueOf(s).Pointer()).Name()
 }

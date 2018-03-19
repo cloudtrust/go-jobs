@@ -1,4 +1,4 @@
-package main
+package job
 
 import "database/sql"
 
@@ -9,7 +9,7 @@ func New(db *sql.DB, componentName, componentID, jobName, jobID string) *Lock {
 	return nil
 }
 
-func (l *Lock)  OwningLock() bool {
+func (l *Lock) OwningLock() bool {
 	return true
 }
 
@@ -17,11 +17,11 @@ func (l *Lock) Lock() error {
 	return nil
 }
 
-func (l *Lock) Disable() error{
+func (l *Lock) Disable() error {
 	return nil
 }
 
-func (l *Lock) Enable() error{
+func (l *Lock) Enable() error {
 	return nil
 }
 

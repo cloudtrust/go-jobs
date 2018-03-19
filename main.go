@@ -1,4 +1,4 @@
-package main
+package job
 
 import (
 	"context"
@@ -9,56 +9,41 @@ import (
 	"time"
 )
 
-func step1() {
-	fmt.Println("*** step1 ***")
-}
 
-func step2() {
-	fmt.Println("*** step2 ***")
-}
-
-func logging() {
-	fmt.Println("logging")
-}
-
-func heartbeat() {
-	fmt.Println("heartbeat")
-}
-
-func job1Func(context.Context, interface{}) error {
-	fmt.Println("Job1")
+func step1Func(context.Context, interface{}) (interface{}, error) {
+	fmt.Println("Step1")
 	loop := 1
 	for loop < 10 {
 		loop += 1
 		fmt.Printf("jobloop %c\n", loop)
 		time.Sleep(500 * time.Millisecond)
 	}
-	fmt.Println("Job1 finished")
-	return nil
+	fmt.Println("Step1 finished")
+	return nil, nil
 }
 
-func job2Func(context.Context, interface{}) error {
-	fmt.Println("Job2")
+func step2Func(context.Context, interface{}) (interface{}, error) {
+	fmt.Println("Step2")
 	loop := 1
 	for loop < 10 {
 		loop += 1
 		fmt.Printf("jobloop %c\n", loop)
 		time.Sleep(500 * time.Millisecond)
 	}
-	fmt.Println("Job2 finished")
-	return nil
+	fmt.Println("Step2 finished")
+	return nil, nil
 }
 
-func job3Func(context.Context, interface{}) error {
-	fmt.Println("Job3")
+func step3Func(context.Context, interface{}) (interface{}, error) {
+	fmt.Println("Step3")
 	loop := 1
 	for loop < 10 {
 		loop += 1
 		fmt.Printf("jobloop %c\n", loop)
 		time.Sleep(500 * time.Millisecond)
 	}
-	fmt.Println("Job3 finished")
-	return nil
+	fmt.Println("Step3 finished")
+	return nil, nil
 }
 
 func main() {
@@ -68,9 +53,7 @@ func main() {
 	// job.AfterEachStep(logging)
 	//job.Run()
 
-	var job, err = NewJob("Job1", Steps(job1Func, job2Func, job3Func), ExecutionTimeout(1 * time.Second))
-
-
+	var job, err = NewJob("Job1", Steps(step1Func, step2Func, step3Func))
 	
 	if err != nil {
 		panic(err)

@@ -1,4 +1,4 @@
-package main
+package job
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 )
 
 // Step is a unit of work of a Job.
-type Step func(context.Context, interface{}) error
+type Step func(context.Context, interface{}) (interface{}, error)
 
 // Job contains the definiton of the job to execute.
 type Job struct {

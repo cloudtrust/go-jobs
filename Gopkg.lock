@@ -2,12 +2,6 @@
 
 
 [[projects]]
-  branch = "master"
-  name = "github.com/AsynkronIT/goconsole"
-  packages = ["."]
-  revision = "bfa12eebf7161a928e20d11a627cc689e99e2e50"
-
-[[projects]]
   branch = "dev"
   name = "github.com/AsynkronIT/protoactor-go"
   packages = [
@@ -25,6 +19,12 @@
   packages = ["queue"]
   revision = "900cfe0fd2681ca34fa97071e8fcf4f623679104"
   version = "v1.0.44"
+
+[[projects]]
+  name = "github.com/davecgh/go-spew"
+  packages = ["spew"]
+  revision = "346938d642f2ec3594ed81d874461961cd0faa76"
+  version = "v1.1.0"
 
 [[projects]]
   name = "github.com/emirpasic/gods"
@@ -56,6 +56,18 @@
   revision = "d4c23bd0e01134806215ffe65ba3fd22ec6721f7"
 
 [[projects]]
+  name = "github.com/pmezard/go-difflib"
+  packages = ["difflib"]
+  revision = "792786c7400a136282c1664665ae0a8db921c6c2"
+  version = "v1.0.0"
+
+[[projects]]
+  name = "github.com/stretchr/testify"
+  packages = ["assert"]
+  revision = "12b6f73e6084dad08a7c6e575284b177ecafbc71"
+  version = "v1.2.1"
+
+[[projects]]
   name = "github.com/victorcoder/dkron"
   packages = ["cron"]
   revision = "24393e00c0391007bb0e10f1bdc0f270fc262899"
@@ -64,6 +76,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "920db64791963f3bad70f5be7f5371026cc00ab8d23a23b6e446887c2d3e1de0"
+  inputs-digest = "5b4a0c6e5e631bd042b6db6b9610ff6c35cbdfec3f811fa8c30603326548cc0c"
   solver-name = "gps-cdcl"
   solver-version = 1
