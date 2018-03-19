@@ -75,6 +75,21 @@ func (j *Job) Steps() []Step {
 	return j.steps
 }
 
+
+func (j *Job) CleanupStep() Step {
+	return j.cleanupStep
+}
+
+
+func (j *Job) NormalDuration() time.Duration{
+	return j.normalDuration
+}
+
+
+func (j *Job) ExecutionTimeout() time.Duration {
+	return j.executionTimeout
+}
+
 // CleanupStep is the option used to set a step of cleanup
 func CleanupStep(s Step) Option {
 	return func(j *Job) error {
@@ -98,3 +113,4 @@ func ExecutionTimeout(d time.Duration) Option {
 		return nil
 	}
 }
+

@@ -1,4 +1,4 @@
-package job
+package main
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"syscall"
 	"time"
 )
-
 
 func step1Func(context.Context, interface{}) (interface{}, error) {
 	fmt.Println("Step1")
@@ -54,7 +53,7 @@ func main() {
 	//job.Run()
 
 	var job, err = NewJob("Job1", Steps(step1Func, step2Func, step3Func))
-	
+
 	if err != nil {
 		panic(err)
 	}
