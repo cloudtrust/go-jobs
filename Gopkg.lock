@@ -50,10 +50,31 @@
   version = "v1.0.0"
 
 [[projects]]
+  name = "github.com/golang/mock"
+  packages = ["gomock"]
+  revision = "13f360950a79f5864a972c786a10a50e44b69541"
+  version = "v1.0.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/lib/pq"
+  packages = [
+    ".",
+    "oid"
+  ]
+  revision = "b2004221932bd6b13167ef654c81cffac36f7537"
+
+[[projects]]
   branch = "master"
   name = "github.com/orcaman/concurrent-map"
   packages = ["."]
   revision = "d4c23bd0e01134806215ffe65ba3fd22ec6721f7"
+
+[[projects]]
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
 
 [[projects]]
   name = "github.com/pmezard/go-difflib"
@@ -76,6 +97,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5b4a0c6e5e631bd042b6db6b9610ff6c35cbdfec3f811fa8c30603326548cc0c"
+  inputs-digest = "b0bd849cf2cc5768bdbf7b870610c2ee41e98e61489d8c6645159424c86dde3e"
   solver-name = "gps-cdcl"
   solver-version = 1
