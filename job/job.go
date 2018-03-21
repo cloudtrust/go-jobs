@@ -9,6 +9,9 @@ import (
 // Step is a unit of work of a Job.
 type Step func(context.Context, interface{}) (interface{}, error)
 
+// CleanupStep is the unit of work to execute in case of failure
+type CleanupStep func(context.Context) (map[string]string, error)
+
 // Job contains the definiton of the job to execute.
 type Job struct {
 	// Name of the job
@@ -18,7 +21,7 @@ type Job struct {
 	// Step of cleaning called in case of failure of one of the steps.
 	// Step of cleanup is optional.
 	// Note: This step of cleanup is called in best effort but without warranty.
-	cleanupStep Step
+	cleanupStep CleanupStep
 	// Timeout of the job execution.
 	// By default there is no timeout.
 	// Note: the job will only be interrupted at the end of a Step.
@@ -75,23 +78,20 @@ func (j *Job) Steps() []Step {
 	return j.steps
 }
 
-
-func (j *Job) CleanupStep() Step {
+func (j *Job) CleanupStep() CleanupStep {
 	return j.cleanupStep
 }
 
-
-func (j *Job) NormalDuration() time.Duration{
+func (j *Job) NormalDuration() time.Duration {
 	return j.normalDuration
 }
-
 
 func (j *Job) ExecutionTimeout() time.Duration {
 	return j.executionTimeout
 }
 
-// CleanupStep is the option used to set a step of cleanup
-func CleanupStep(s Step) Option {
+// Cleanup is the option used to set a step of cleanup
+func Cleanup(s CleanupStep) Option {
 	return func(j *Job) error {
 		j.cleanupStep = s
 		return nil
@@ -113,4 +113,3 @@ func ExecutionTimeout(d time.Duration) Option {
 		return nil
 	}
 }
-

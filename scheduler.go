@@ -7,11 +7,7 @@ import (
 	"github.com/victorcoder/dkron/cron"
 )
 
-const (
-	normalExecution   = 0
-	EXECUTION_TIMEOUT = 1
-	SUICIDE_TIMEOUT   = 2
-)
+
 
 // Scheduler is main entry point.
 type Scheduler struct {

@@ -2,47 +2,211 @@ package actor
 
 import (
 	"context"
+	"errors"
+	"strconv"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/job"
 )
 
-func step(context.Context, interface{}) (interface{}, error) {
-	return nil, nil
+func TestOneSuccessfulStepCase(t *testing.T) {
+	var wg sync.WaitGroup
+	var result string
+	var output map[string]string
+
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(successfulStep))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch msg := c.Message().(type) {
+		case *actor.Started:
+			props := actor.FromProducer(NewRunnerActor)
+			runner := c.Spawn(props)
+			runner.Tell(&Run{job})
+		case *Status:
+			result = msg.status
+			output = msg.message
+			wg.Done()
+		}
+
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.Equal(t, Completed, result)
+	var expectedOutput = map[string]string{"message": "done"}
+	assert.Equal(t, expectedOutput, output)
 }
 
-type ActorTest struct{}
+func TestMultipleStepWiring(t *testing.T) {
+	var wg sync.WaitGroup
+	var result string
+	var output map[string]string
 
-func (state *ActorTest) Receive(ctx actor.Context){
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(listInt, sum))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch msg := c.Message().(type) {
+		case *actor.Started:
+			props := actor.FromProducer(NewRunnerActor)
+			runner := c.Spawn(props)
+			runner.Tell(&Run{job})
+		case *Status:
+			result = msg.status
+			output = msg.message
+			wg.Done()
+		}
+
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.Equal(t, Completed, result)
+
+	expectedOutput := map[string]string{"sum": "6"}
+	assert.Equal(t, expectedOutput, output)
+}
+
+func TestInvalidResultFormat(t *testing.T) {
+	var wg sync.WaitGroup
+	var result string
+	var output map[string]string
+
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(listInt))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch msg := c.Message().(type) {
+		case *actor.Started:
+			props := actor.FromProducer(NewRunnerActor)
+			runner := c.Spawn(props)
+			runner.Tell(&Run{job})
+		case *Status:
+			result = msg.status
+			output = msg.message
+			wg.Done()
+		}
+
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.Equal(t, Failed, result)
+
+	expectedOutput := map[string]string{"Reason": "Invalid type result for last step"}
+	assert.Equal(t, expectedOutput, output)
+}
+
+func TestCleanupStepExecution(t *testing.T) {
+	var wg sync.WaitGroup
+	var result string
+	var output map[string]string
+
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(listInt), job.Cleanup(cleanUp))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch msg := c.Message().(type) {
+		case *actor.Started:
+			props := actor.FromProducer(NewRunnerActor)
+			runner := c.Spawn(props)
+			runner.Tell(&Run{job})
+		case *Status:
+			result = msg.status
+			output = msg.message
+			wg.Done()
+		}
+
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.Equal(t, Failed, result)
+
+	expectedOutput := map[string]string{"cleanup": "ok", "Reason": "Invalid type result for last step"}
+	assert.Equal(t, expectedOutput, output)
+}
+
+func TestErrorHandling(t *testing.T) {
+	var wg sync.WaitGroup
+	var result string
+	var output map[string]string
+
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(listInt, errorStep, sum), job.Cleanup(failingCleanUp))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch msg := c.Message().(type) {
+		case *actor.Started:
+			props := actor.FromProducer(NewRunnerActor)
+			runner := c.Spawn(props)
+			runner.Tell(&Run{job})
+		case *Status:
+			result = msg.status
+			output = msg.message
+			wg.Done()
+		}
+
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.Equal(t, Failed, result)
+
+	expectedOutput := map[string]string{"Reason": "Step failed", "CleanupError": "Cleanup error"}
+	assert.Equal(t, expectedOutput, output)
 
 }
 
-func ActorTestProducer() actor.Actor {
-	return &ActorTest{}
+/* Utils */
+
+func successfulStep(context.Context, interface{}) (interface{}, error) {
+	return map[string]string{"message": "done"}, nil
 }
 
-// Test nominal use case with 1 step
-//Check message sent
-func TestNominalCase(t *testing.T) {
-
-	props := actor.FromProducer(ActorTestProducer)
-	actorPid := actor.Spawn(props)
-
-	var job, err = job.NewJob("jobID", job.Steps(step))
-
-	props := BuildRunnerActorProps()
-	actor.Spawn(props)
-
+func errorStep(context.Context, interface{}) (interface{}, error) {
+	return nil, errors.New("Step failed")
 }
 
-// Test job with multiple steps with passing args and rlinks between steps
-//Check message sent
+func listInt(context.Context, interface{}) (interface{}, error) {
+	return []int{1, 2, 3}, nil
+}
 
-// Test failing step without cleanupStep
-//Check message sent
+func cleanUp(context.Context) (map[string]string, error) {
+	return map[string]string{"cleanup": "ok"}, nil
+}
 
-// Test faling step + execution of cleanupStep
-//Check message sent
+func failingCleanUp(context.Context) (map[string]string, error) {
+	return nil, errors.New("Cleanup error")
+}
 
-// Test panic restart
+func sum(ctx context.Context, l interface{}) (interface{}, error) {
+	var list, ok = l.([]int)
+
+	if !ok {
+		return nil, errors.New("Invalid argument")
+	}
+
+	var sum = 0
+	for _, i := range list {
+		sum = sum + i
+	}
+
+	result := map[string]string{"sum": strconv.Itoa(sum)}
+	return result, nil
+}

@@ -1,14 +1,18 @@
 package actor
 
-//go:generate mockgen -destination=./mock/actor_test.go -package=mock -mock_names=Actor=Actor github.com/AsynkronIT/protoactor-go/actor Actor
-
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/job"
+)
+
+const (
+	Completed = "COMPLETED"
+	Failed    = "FAILED"
 )
 
 type RunnerActor struct{}
@@ -19,16 +23,28 @@ type Run struct {
 
 type NextStep struct {
 	job       *job.Job
+	prevRes   interface{}
 	i         int
 	stepInfos map[string]string
 }
 
-func newRunnerActor() actor.Actor {
+type Failure struct {
+	job       *job.Job
+	err       error
+	stepInfos map[string]string
+}
+
+type Success struct {
+	job    *job.Job
+	result map[string]string
+}
+
+func NewRunnerActor() actor.Actor {
 	return &RunnerActor{}
 }
 
 func BuildRunnerActorProps() *actor.Props {
-	return actor.FromProducer(newRunnerActor)
+	return actor.FromProducer(NewRunnerActor)
 }
 
 func (state *RunnerActor) Receive(context actor.Context) {
@@ -37,8 +53,6 @@ func (state *RunnerActor) Receive(context actor.Context) {
 
 		//Initialize map Step Status
 
-		//TODO est ce que on stocke stepInfo dans le state ou on le passe dans le message
-		//-> voir si il y a un impact lors d'un restart?
 		var stepInfos = make(map[string]string)
 
 		for _, step := range msg.job.Steps() {
@@ -48,24 +62,22 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		}
 
 		i := 0
-		context.Self().Tell(&NextStep{msg.job, i, stepInfos})
+		context.Self().Tell(&NextStep{msg.job, nil, i, stepInfos})
 
 	case *NextStep:
 		var step = msg.job.Steps()[msg.i]
 		var infos = msg.stepInfos
+		var previousRes = msg.prevRes
 		infos[stepName(step)] = "Running"
 		context.Parent().Tell(&HeartBeat{infos})
 
-		//TODO changer Step pour que retourne interface{}, error
-		//-> Ainsi possibilité de transmettre des infos d'un step à l'autre
-		//ça facilitera le découpage en step plus petit
-		var _, err = step(nil, nil)
+		// TODO gérer le passage d'un context en 1° arg
+		var res, err = step(nil, previousRes)
 
 		if err != nil {
 			infos[stepName(step)] = "Failed"
 			context.Parent().Tell(&HeartBeat{infos})
-
-			context.Parent().Tell(&Status{"Failure", "err"})
+			context.Self().Tell(&Failure{msg.job, err, infos})
 			return
 		}
 
@@ -75,16 +87,53 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		var i = msg.i + 1
 
 		if i >= len(msg.job.Steps()) {
-			context.Parent().Tell(&Status{"Done", "mess"})
+			var mapRes, ok = res.(map[string]string)
+			if ok {
+				context.Self().Tell(&Success{msg.job, mapRes})
+			} else {
+				//context.Parent().Tell(&Status{Failure, map[string]string{"Reason": "Invalid type result for last step"}})
+				err := errors.New("Invalid type result for last step")
+				context.Self().Tell(&Failure{msg.job, err, infos})
+			}
 			return
 		}
 
 		// TODO transamettre val (le retour de step) dans le message
 		// Ajouter val au context car on veut un contexte tout le temps
-		context.Self().Tell(&NextStep{msg.job, i, infos})
+		context.Self().Tell(&NextStep{msg.job, res, i, infos})
+	case *Failure:
+		var result = map[string]string{"Reason": msg.err.Error()}
+
+		// if cleanup step exist
+		if msg.job.CleanupStep() != nil {
+			var cleanStep = msg.job.CleanupStep()
+			var infos = msg.stepInfos
+			infos[stepName(cleanStep)] = "Running"
+			context.Parent().Tell(&HeartBeat{infos})
+			var res, err = cleanStep(nil)
+
+			if err != nil {
+				infos[stepName(cleanStep)] = "Failed"
+				result["CleanupError"] = err.Error()
+			} else {
+				infos[stepName(cleanStep)] = "Completed"
+
+				for k, v := range res {
+					result[k] = v
+				}
+			}
+
+			context.Parent().Tell(&HeartBeat{infos})
+
+		}
+
+		context.Parent().Tell(&Status{Failed, result})
+
+	case *Success:
+		context.Parent().Tell(&Status{Completed, msg.result})
 	}
 }
 
-func stepName(s job.Step) string {
+func stepName(s interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(s).Pointer()).Name()
 }

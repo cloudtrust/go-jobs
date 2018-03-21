@@ -8,39 +8,76 @@ import (
 	"github.com/cloudtrust/go-jobs/job"
 )
 
+const (
+	normalExecution  = 0
+	executionTimeout = 1
+	suicideTimeout   = 2
+)
+
 type WorkerActor struct {
 	job                *job.Job
+	lock               *Lock
+	statistics         *Statistics
+	runnerProducer     actor.Producer
+	suicideTimeout     time.Duration
 	currentTimeoutType int
-	occupied           bool
 }
+
+type WorkerOption func(w *WorkerActor)
 
 type Execute struct{}
 
 type Status struct {
 	status  string
-	message string
+	message map[string]string
 }
 
 type HeartBeat struct {
 	StepInfos map[string]string
 }
 
-func NewWorkerActorBuilder(j *job.Job) func() actor.Actor {
+type Lock interface {
+	Lock() error
+	Unlock() error
+}
+
+type Statistics interface {
+}
+
+func NewWorkerActor(j *job.Job, l *Lock, s *Statistics, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
-		return &WorkerActor{
-			job: j,
+		var worker = &WorkerActor{
+			job:            j,
+			lock:           l,
+			statistics:     s,
+			suicideTimeout: 0,
+			runnerProducer: NewRunnerActor,
 		}
+
+		// Apply options to the job
+		for _, opt := range options {
+			opt(worker)
+		}
+
+		return worker
+	}
+}
+
+func SuicideTimeout(d time.Duration) WorkerOption {
+	return func(w *WorkerActor) {
+		w.suicideTimeout = d
+	}
+}
+
+func runnerProducer(p actor.Producer) WorkerOption {
+	return func(w *WorkerActor) {
+		w.runnerProducer = p
 	}
 }
 
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
 	case *Execute:
-		if state.occupied {
-			fmt.Println("OCCUPIED")
-			return
-		}
-		state.occupied = true
 		// if DistributedLock
 		// 1. CleanupPhase
 
@@ -73,13 +110,13 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		switch state.currentTimeoutType {
 		case normalExecution:
 			//TODO LOG the info about normal execution exceeded
-			state.currentTimeoutType = EXECUTION_TIMEOUT
+			state.currentTimeoutType = executionTimeout
 			context.SetReceiveTimeout(state.job.ExecutionTimeout())
-		case EXECUTION_TIMEOUT:
-			state.currentTimeoutType = SUICIDE_TIMEOUT
+		case executionTimeout:
+			state.currentTimeoutType = suicideTimeout
 			context.SetReceiveTimeout(100 * time.Second)
 			context.Children()[0].Stop()
-		case SUICIDE_TIMEOUT:
+		case suicideTimeout:
 			panic("SUICIDE_TIMEOUT")
 		default:
 			panic("UNKNOWN_TIMEOUT")

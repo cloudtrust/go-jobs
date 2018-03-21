@@ -12,6 +12,10 @@ func step(context.Context, interface{}) (interface{}, error) {
 	return nil, nil
 }
 
+func cleanupStep(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 func TestNewJob(t *testing.T) {
 	var job, err = NewJob("ID", Steps(step))
 
@@ -52,8 +56,8 @@ func TestSteps(t *testing.T){
 	assert.Equal(t, 2, len(job.Steps()))
 }
 
-func TestCleanupStep(t *testing.T) {
-	var job, err = NewJob("ID", Steps(step, step), CleanupStep(step))
+func TestCleanup(t *testing.T) {
+	var job, err = NewJob("ID", Steps(step, step), Cleanup(cleanupStep))
 
 	assert.Nil(t, err)
 	assert.NotNil(t, job)
