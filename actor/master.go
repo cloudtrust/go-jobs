@@ -31,7 +31,7 @@ func NewMasterActor() actor.Actor {
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = actor.FromProducer(NewWorkerActorBuilder(msg.job)).WithSupervisor(masterActorSupervisorStrategy())
+		var props = actor.FromProducer(NewWorkerActor(msg.job, nil, nil)).WithSupervisor(masterActorSupervisorStrategy())
 		var worker = context.Spawn(props)
 		state.workers[msg.label] = worker
 	case *StartJob:

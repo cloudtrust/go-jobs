@@ -16,8 +16,8 @@ const (
 
 type WorkerActor struct {
 	job                *job.Job
-	lock               *Lock
-	statistics         *Statistics
+	lock               Lock
+	statistics         Statistics
 	runnerProducer     actor.Producer
 	suicideTimeout     time.Duration
 	currentTimeoutType int
@@ -44,7 +44,7 @@ type Lock interface {
 type Statistics interface {
 }
 
-func NewWorkerActor(j *job.Job, l *Lock, s *Statistics, options ...WorkerOption) func() actor.Actor {
+func NewWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
 		var worker = &WorkerActor{
 			job:            j,
@@ -94,11 +94,12 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
 		// TODO with specific worker supervisor
-		props := actor.FromProducer(NewRunnerActor)
+		props := actor.FromProducer(state.runnerProducer)
 		runner := context.Spawn(props)
 		// Tell Run to Runner
 		runner.Tell(&Run{state.job})
 	case *Status:
+		state.lock.Lock()
 		fmt.Println("Status")
 	case *HeartBeat:
 		//context.SetBehavior(state.ReceiveOccupied)

@@ -13,6 +13,8 @@ import (
 	"github.com/cloudtrust/go-jobs/job"
 )
 
+//TODO add check output of stepInfos + check number of call to HeartBeat
+
 func TestOneSuccessfulStepCase(t *testing.T) {
 	var wg sync.WaitGroup
 	var result string
