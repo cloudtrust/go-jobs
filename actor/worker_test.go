@@ -5,6 +5,7 @@ package actor
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/cloudtrust/go-jobs/actor/mock"
 	"github.com/cloudtrust/go-jobs/job"
 	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
 )
 
 // Test nominal use case
@@ -139,29 +141,23 @@ func TestExecutionTimeout(t *testing.T) {
 	var mockLock = mock.NewLock(mockCtrl)
 
 	mockLock.EXPECT().Lock().Return(nil).Times(1)
-	mockLock.EXPECT().Unlock().Do(func() {}).Return(nil).Times(1)
+	mockLock.EXPECT().Unlock().Do(func() { wg.Done() }).Return(nil).Times(1)
 
 	var mockStatistics = mock.NewStatistics(mockCtrl)
 	mockStatistics.EXPECT().Start().Return(nil).Times(1)
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob("job", job.Steps(successfulStep), job.ExecutionTimeout(1*time.Second))
+	var job, _ = job.NewJob("job", job.Steps(successfulStep), job.ExecutionTimeout(2*time.Second))
 
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(5*time.Second), runnerProducer(mockNewInfiniteLoopRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(10*time.Second), runnerProducer(mockNewSlowRunnerActor)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
-		case *actor.Stop:
-			wg.Done()
-			panic("YEP")
 		}
-
-	}).WithGuardian(actor.NewOneForOneStrategy(10, 10, func(reason interface{}) actor.Directive {
-		return actor.StopDirective
-	})))
+	}))
 
 	wg.Wait()
 	master.GracefulStop()
@@ -169,6 +165,7 @@ func TestExecutionTimeout(t *testing.T) {
 }
 
 func TestSuicideTimeout(t *testing.T) {
+
 	var wg sync.WaitGroup
 
 	var mockCtrl = gomock.NewController(t)
@@ -177,7 +174,7 @@ func TestSuicideTimeout(t *testing.T) {
 	var mockLock = mock.NewLock(mockCtrl)
 
 	mockLock.EXPECT().Lock().Return(nil).Times(1)
-	mockLock.EXPECT().Unlock().Do(func() { wg.Done() }).Return(nil).Times(1)
+	mockLock.EXPECT().Unlock().Do(func() { wg.Done() }).Return(nil).MaxTimes(0)
 
 	var expectedStepInfos1 = map[string]string{"step1": "Running"}
 	var expectedStepInfos2 = map[string]string{"step1": "Failed"}
@@ -186,12 +183,22 @@ func TestSuicideTimeout(t *testing.T) {
 	var mockStatistics = mock.NewStatistics(mockCtrl)
 	mockStatistics.EXPECT().Start().Return(nil).Times(1)
 	mockStatistics.EXPECT().Update(expectedStepInfos1).Return(nil).Times(1)
-	mockStatistics.EXPECT().Cancel(expectedStepInfos2, expectedMessage).Times(1)
+	mockStatistics.EXPECT().Cancel(expectedStepInfos2, expectedMessage).MaxTimes(0)
 	mockStatistics.EXPECT().Finish(gomock.Any(), gomock.Any()).MaxTimes(0)
+
+	var suicide = false
+
+	var mockActorGuardianStrategy = func() actor.SupervisorStrategy {
+		return actor.NewOneForOneStrategy(10, 1000, func(reason interface{}) actor.Directive {
+			suicide = true
+			wg.Done()
+			return actor.StopDirective
+		})
+	}
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob("job", job.Steps(successfulStep))
+	var job, _ = job.NewJob("job", job.Steps(successfulStep), job.ExecutionTimeout(1*time.Second))
 
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
@@ -201,10 +208,13 @@ func TestSuicideTimeout(t *testing.T) {
 			worker.Tell(&Execute{})
 		}
 
-	}))
+	}).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(mockActorGuardianStrategy()))
 
 	wg.Wait()
 	master.GracefulStop()
+
+	assert.True(t, suicide)
+
 }
 
 //Test timeout mechanism, normal timeout, execution timeout, suicide timeout
@@ -251,7 +261,42 @@ func (state *mockFailingRunnerActor) Receive(context actor.Context) {
 	}
 }
 
-// /** Mock Infinite Loop Runner Actor **/
+/** Mock Slow Runner Actor **/
+
+type Run2 struct{}
+type Run3 struct{}
+type Run4 struct{}
+
+type mockSlowRunnerActor struct{}
+
+func mockNewSlowRunnerActor() actor.Actor {
+	return &mockSlowRunnerActor{}
+}
+
+func (state *mockSlowRunnerActor) Receive(context actor.Context) {
+	switch context.Message().(type) {
+	case *actor.Stopped:
+		context.Parent().Tell(&RunnerStopped{})
+	case *Run:
+		var stepInfos1 = map[string]string{"step1": "Running"}
+		context.Parent().Tell(&HeartBeat{StepInfos: stepInfos1})
+		time.Sleep(5 * time.Second)
+		context.Self().Tell(&Run4{})
+	case *Run2:
+		time.Sleep(5 * time.Second)
+		fmt.Println("4")
+		context.Self().Tell(&Run3{})
+	case *Run3:
+		time.Sleep(5 * time.Second)
+		fmt.Println("4")
+		context.Self().Tell(&Run2{})
+	case *Run4:
+		for {
+		}
+	}
+}
+
+/** Mock Infinite Loop Runner Actor **/
 
 type mockInfiniteLoopRunnerActor struct{}
 
@@ -261,20 +306,23 @@ func mockNewInfiniteLoopRunnerActor() actor.Actor {
 
 func (state *mockInfiniteLoopRunnerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
+	case *actor.Stopped:
+		context.Parent().Tell(&RunnerStopped{})
 	case *Run:
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func mockActorSupervisorStrategy() actor.SupervisorStrategy {
-	return actor.NewOneForOneStrategy(10, 10, mockActorDecider)
-}
-
-func mockActorDecider(reason interface{}) actor.Directive {
-	switch reason {
-	case "KillTimeoutExceeded":
-		return actor.EscalateDirective
-	default:
-		return actor.RestartDirective
+		var stepInfos1 = map[string]string{"step1": "Running"}
+		context.Parent().Tell(&HeartBeat{StepInfos: stepInfos1})
+		for {
+			time.Sleep(2 * time.Second)
+		}
+	case *Run2:
+		time.Sleep(2 * time.Second)
+		context.Self().Tell(&Run3{})
+	case *Run3:
+		time.Sleep(2 * time.Second)
+		context.Self().Tell(&Run4{})
+	case *Run4:
+		for {
+			fmt.Printf("ttt")
+		}
 	}
 }

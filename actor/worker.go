@@ -30,7 +30,7 @@ type Execute struct{}
 type Status struct {
 	status  string
 	message map[string]string
-	infos map[string]string
+	infos   map[string]string
 }
 
 type HeartBeat struct {
@@ -84,10 +84,6 @@ func runnerProducer(p actor.Producer) WorkerOption {
 
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
-	case *actor.Started:
-		fmt.Printf("totot")
-		var i = 0
-		_ = i+1
 	case *Execute:
 
 		//TODO
@@ -99,6 +95,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		}
 
 		// Set NormalExecutionTimeout
+		fmt.Println(state.job.ExecutionTimeout())
 		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
@@ -112,17 +109,18 @@ func (state *WorkerActor) Receive(context actor.Context) {
 	case *Status:
 		if message.status == Completed {
 			state.statistics.Finish(message.infos, message.message)
-		}else{
+		} else {
 			state.statistics.Cancel(message.infos, message.message)
 		}
 
 		// unlock will be auto called by stop of runner
 
 	case *HeartBeat:
-		// stat.update
+		fmt.Println(state.job.ExecutionTimeout())
+		state.currentTimeoutType = normalExecution
+		context.SetReceiveTimeout(state.job.ExecutionTimeout() + 1)
 		var s = message.StepInfos
 		state.statistics.Update(s)
-		fmt.Println(s)
 
 	case *RunnerStopped:
 		state.lock.Unlock()
@@ -132,13 +130,13 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		case normalExecution:
 			//TODO LOG the info about normal execution exceeded
 			state.currentTimeoutType = executionTimeout
+			fmt.Println(state.job.ExecutionTimeout())
 			context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		case executionTimeout:
 			state.currentTimeoutType = suicideTimeout
+			fmt.Println(state.suicideTimeout)
 			context.SetReceiveTimeout(state.suicideTimeout)
 			context.Children()[0].Stop()
-			var i = 0
-			_ = i +1
 			// unlock will be auto called by stop of runner
 		case suicideTimeout:
 			//cancel

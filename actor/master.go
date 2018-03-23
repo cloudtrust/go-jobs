@@ -45,7 +45,7 @@ func masterActorSupervisorStrategy() actor.SupervisorStrategy {
 
 func masterActorDecider(reason interface{}) actor.Directive {
 	switch reason {
-	case "KillTimeoutExceeded":
+	case "SUICIDE_TIMEOUT":
 		return actor.EscalateDirective
 	default:
 		return actor.RestartDirective
