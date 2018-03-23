@@ -14,14 +14,14 @@ const (
 		component_id STRING,
 		job_name STRING,
 		job_id STRING,
-		start_time TIMESTAMP WITHOUT TIME ZONE,
+		start_time TIMESTAMPTZ,
 		step_infos STRING,
-		last_update TIMESTAMP WITHOUT TIME ZONE,
-		last_execution TIMESTAMP WITHOUT TIME ZONE,
+		last_update TIMESTAMPTZ,
+		last_execution TIMESTAMPTZ,
 		last_execution_status STRING,
 		last_execution_message STRING,
 		last_execution_duration INTERVAL,
-		last_success TIMESTAMP WITHOUT TIME ZONE,
+		last_success TIMESTAMPTZ,
 		PRIMARY KEY (component_name, job_name))`
 	insertStatusStmt = `INSERT INTO status (
 		component_name,
@@ -40,8 +40,12 @@ const (
 	selectStatusStmt = `SELECT * FROM status WHERE (component_name = $1 AND job_name = $2)`
 	startStmt        = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND job_name = $3)`
 	updateStatusStmt = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND job_name = $4)`
-	finishStmt       = `UPDATE status SET (last_update, message, step_infos, last_execution, last_execution_success, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6, $7) WHERE (component_name = $8 AND job_name = $9)`
-	cancelStmt       = `UPDATE status SET (last_update, message, step_infos, last_execution, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6) WHERE (component_name = $7 AND job_name = $8)`
+	finishStmt       = `UPDATE status SET (last_update, last_execution_message, step_infos, last_execution, last_success, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6, $7) WHERE (component_name = $8 AND job_name = $9)`
+	cancelStmt       = `UPDATE status SET (last_update, last_execution_message, step_infos, last_execution, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6) WHERE (component_name = $7 AND job_name = $8)`
+)
+
+var (
+	refEpoch = time.Unix(0, 0).UTC()
 )
 
 // Status is the locking module.
@@ -87,23 +91,23 @@ func New(db DB, componentName, componentID, jobName, jobID string) *Status {
 
 	// Init DB: create table and status entry for job.
 	db.Exec(createStatusTblStmt)
-	db.Exec(insertStatusStmt, s.componentName, s.componentID, s.jobName, s.jobID, time.Time{}, "", time.Time{}, time.Time{}, "", "", 0*time.Second, time.Time{})
-
+	db.Exec(insertStatusStmt, s.componentName, s.componentID, s.jobName, s.jobID, refEpoch, "", refEpoch, refEpoch, "", "", 0*time.Second, refEpoch)
 	return s
 }
 
 // Start update the job start time in the DB.
 func (s *Status) Start() error {
-	var _, err = s.db.Exec(startStmt, time.Now(), s.componentName, s.jobName)
+	var _, err = s.db.Exec(startStmt, time.Now().UTC(), s.componentName, s.jobName)
 	return err
 }
 
 // GetStatus returns the whole status database entry for the current Job.
 func (s *Status) GetStatus() (*Table, error) {
 	var row = s.db.QueryRow(selectStatusStmt, s.componentName, s.jobName)
-	var t = Table{}
-	var interval string
-	var err = row.Scan(&t.componentName, &t.componentID, &t.jobName, &t.jobID, &t.startTime, &t.stepInfos, &t.lastUpdate, &t.lastExecution, &t.lastExecutionStatus, &t.lastExecutionMessage, &interval, &t.lastSuccess)
+
+	var cName, cID, jName, jID, stepInfos, lastExecutionStatus, lastExecutionMessage, interval string
+	var startTime, lastUpdate, lastExecution, lastSuccess time.Time
+	var err = row.Scan(&cName, &cID, &jName, &jID, &startTime, &stepInfos, &lastUpdate, &lastExecution, &lastExecutionStatus, &lastExecutionMessage, &interval, &lastSuccess)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get job from DB")
 	}
@@ -116,15 +120,28 @@ func (s *Status) GetStatus() (*Table, error) {
 			return nil, errors.Wrap(err, "could not parse duration")
 		}
 	}
-	t.lastExecutionDuration = duration
-	return &t, nil
+
+	return &Table{
+		componentName:         cName,
+		componentID:           cID,
+		jobName:               jName,
+		jobID:                 jID,
+		startTime:             startTime.UTC(),
+		stepInfos:             stepInfos,
+		lastUpdate:            lastUpdate.UTC(),
+		lastExecution:         lastExecution.UTC(),
+		lastExecutionStatus:   lastExecutionStatus,
+		lastExecutionMessage:  lastExecutionMessage,
+		lastExecutionDuration: duration,
+		lastSuccess:           lastSuccess.UTC(),
+	}, nil
 }
 
 // GetStartTime reads in DB and returns the time at which the job started.
 func (s *Status) GetStartTime() (time.Time, error) {
 	var t, err = s.GetStatus()
 	if err != nil {
-		return time.Time{}, err
+		return refEpoch, err
 	}
 	return t.startTime, nil
 
@@ -141,7 +158,7 @@ func (s *Status) Update(stepInfos map[string]string) error {
 		}
 	}
 
-	var _, err = s.db.Exec(updateStatusStmt, time.Now(), string(infos), s.componentName, s.jobName)
+	var _, err = s.db.Exec(updateStatusStmt, time.Now().UTC(), string(infos), s.componentName, s.jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
 	}
@@ -149,8 +166,8 @@ func (s *Status) Update(stepInfos map[string]string) error {
 	return nil
 }
 
-// Finish update the job infos when the job complete without errors.
-func (s *Status) Finish(stepInfos, message map[string]string) error {
+// Complete update the job infos when the job finishes without errors.
+func (s *Status) Complete(stepInfos, message map[string]string) error {
 	var infos []byte
 	{
 		var err error
@@ -178,17 +195,16 @@ func (s *Status) Finish(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var now = time.Now()
-	var _, err = s.db.Exec(finishStmt, now, string(msg), string(infos), now, now, time.Since(startTime), "SUCCESS", s.componentName, s.jobName)
+	var now = time.Now().UTC()
+	var _, err = s.db.Exec(finishStmt, now, string(msg), string(infos), now, now, time.Since(startTime).String(), "SUCCESS", s.componentName, s.jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
 	}
-
 	return nil
 }
 
-// Cancel update the job infos when the job finishes with errors.
-func (s *Status) Cancel(stepInfos, message map[string]string) error {
+// Fail update the job infos when the job finishes with errors.
+func (s *Status) Fail(stepInfos, message map[string]string) error {
 	var infos []byte
 	{
 		var err error
@@ -216,7 +232,7 @@ func (s *Status) Cancel(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var now = time.Now()
+	var now = time.Now().UTC()
 	var _, err = s.db.Exec(cancelStmt, now, string(msg), string(infos), now, time.Since(startTime), "FAILED", s.componentName, s.jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
