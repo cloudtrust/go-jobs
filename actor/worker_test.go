@@ -19,7 +19,7 @@ import (
 
 // Test nominal use case
 // Check message sent & received
-func TestNominalCase(t *testing.T) {
+func TestWorkerNominalCase(t *testing.T) {
 	var wg sync.WaitGroup
 
 	var mockCtrl = gomock.NewController(t)
