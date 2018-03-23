@@ -30,11 +30,14 @@ type Execute struct{}
 type Status struct {
 	status  string
 	message map[string]string
+	infos map[string]string
 }
 
 type HeartBeat struct {
 	StepInfos map[string]string
 }
+
+type RunnerStopped struct{}
 
 type Lock interface {
 	Lock() error
@@ -42,6 +45,10 @@ type Lock interface {
 }
 
 type Statistics interface {
+	Start() error
+	Update(stepInfos map[string]string) error
+	Finish(stepInfos, message map[string]string)
+	Cancel(stepInfos, message map[string]string) error
 }
 
 func NewWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
@@ -77,35 +84,48 @@ func runnerProducer(p actor.Producer) WorkerOption {
 
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
+	case *actor.Started:
+		fmt.Printf("totot")
+		var i = 0
+		_ = i+1
 	case *Execute:
-		// if DistributedLock
-		// 1. CleanupPhase
 
-		// 2. ReservationPhase
-
-		// 3. ExecutionPhase
-
-		// else
-		// SwitchBehavior to OCCUPIED or Switch a flag in state of the actor
-		//context.SetBehavior(state.ReceiveOccupied)
+		//TODO
+		// Cleanup phase with clean of lock exceeding a certain amont of time not performed
+		// Maybe more responisibility of Lock ?
+		if state.lock.Lock() != nil {
+			//TODO log lock not succeeded?
+			return
+		}
 
 		// Set NormalExecutionTimeout
 		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
-		// TODO with specific worker supervisor
+		// TODO with specific worker supervisor ?
 		props := actor.FromProducer(state.runnerProducer)
 		runner := context.Spawn(props)
 		// Tell Run to Runner
+
+		state.statistics.Start()
 		runner.Tell(&Run{state.job})
 	case *Status:
-		state.lock.Lock()
-		fmt.Println("Status")
+		if message.status == Completed {
+			state.statistics.Finish(message.infos, message.message)
+		}else{
+			state.statistics.Cancel(message.infos, message.message)
+		}
+
+		// unlock will be auto called by stop of runner
+
 	case *HeartBeat:
-		//context.SetBehavior(state.ReceiveOccupied)
-		fmt.Println("Heartbeat")
+		// stat.update
 		var s = message.StepInfos
+		state.statistics.Update(s)
 		fmt.Println(s)
+
+	case *RunnerStopped:
+		state.lock.Unlock()
 
 	case *actor.ReceiveTimeout:
 		switch state.currentTimeoutType {
@@ -115,11 +135,19 @@ func (state *WorkerActor) Receive(context actor.Context) {
 			context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		case executionTimeout:
 			state.currentTimeoutType = suicideTimeout
-			context.SetReceiveTimeout(100 * time.Second)
+			context.SetReceiveTimeout(state.suicideTimeout)
 			context.Children()[0].Stop()
+			var i = 0
+			_ = i +1
+			// unlock will be auto called by stop of runner
 		case suicideTimeout:
+			//cancel
+			//unlock
+			fmt.Printf("Suicide timeout called")
 			panic("SUICIDE_TIMEOUT")
 		default:
+			//TODO check behavior in case of restart.
+			//very likely unlock and cancel should be called manually
 			panic("UNKNOWN_TIMEOUT")
 		}
 	}

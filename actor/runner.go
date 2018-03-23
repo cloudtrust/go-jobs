@@ -35,8 +35,9 @@ type Failure struct {
 }
 
 type Success struct {
-	job    *job.Job
-	result map[string]string
+	job       *job.Job
+	result    map[string]string
+	stepInfos map[string]string
 }
 
 func NewRunnerActor() actor.Actor {
@@ -49,6 +50,8 @@ func BuildRunnerActorProps() *actor.Props {
 
 func (state *RunnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
+	case actor.Stopped:
+		context.Parent().Tell(&RunnerStopped{})
 	case *Run:
 
 		//Initialize map Step Status
@@ -89,7 +92,7 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		if i >= len(msg.job.Steps()) {
 			var mapRes, ok = res.(map[string]string)
 			if ok {
-				context.Self().Tell(&Success{msg.job, mapRes})
+				context.Self().Tell(&Success{msg.job, mapRes, infos})
 			} else {
 				//context.Parent().Tell(&Status{Failure, map[string]string{"Reason": "Invalid type result for last step"}})
 				err := errors.New("Invalid type result for last step")
@@ -103,11 +106,11 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		context.Self().Tell(&NextStep{msg.job, res, i, infos})
 	case *Failure:
 		var result = map[string]string{"Reason": msg.err.Error()}
+		var infos = msg.stepInfos
 
 		// if cleanup step exist
 		if msg.job.CleanupStep() != nil {
 			var cleanStep = msg.job.CleanupStep()
-			var infos = msg.stepInfos
 			infos[stepName(cleanStep)] = "Running"
 			context.Parent().Tell(&HeartBeat{infos})
 			var res, err = cleanStep(nil)
@@ -122,15 +125,12 @@ func (state *RunnerActor) Receive(context actor.Context) {
 					result[k] = v
 				}
 			}
-
-			context.Parent().Tell(&HeartBeat{infos})
-
 		}
 
-		context.Parent().Tell(&Status{Failed, result})
+		context.Parent().Tell(&Status{Failed, result, infos})
 
 	case *Success:
-		context.Parent().Tell(&Status{Completed, msg.result})
+		context.Parent().Tell(&Status{Completed, msg.result, msg.stepInfos})
 	}
 }
 
