@@ -145,6 +145,7 @@ func TestExecutionTimeout(t *testing.T) {
 
 	var mockStatistics = mock.NewStatistics(mockCtrl)
 	mockStatistics.EXPECT().Start().Return(nil).Times(1)
+	mockStatistics.EXPECT().Update(gomock.Any()).Return(nil).Times(1)
 
 	wg.Add(1)
 

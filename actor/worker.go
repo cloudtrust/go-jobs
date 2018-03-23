@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
@@ -85,17 +84,13 @@ func runnerProducer(p actor.Producer) WorkerOption {
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
 	case *Execute:
-
-		//TODO
-		// Cleanup phase with clean of lock exceeding a certain amont of time not performed
-		// Maybe more responisibility of Lock ?
 		if state.lock.Lock() != nil {
-			//TODO log lock not succeeded?
+			//TODO log lock not succeeded
 			return
 		}
 
 		// Set NormalExecutionTimeout
-		fmt.Println(state.job.ExecutionTimeout())
+		// TODO normal execution is optional, set it only iff value provided. same for exectimeout and/or suicide timeout
 		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
@@ -116,9 +111,8 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		// unlock will be auto called by stop of runner
 
 	case *HeartBeat:
-		fmt.Println(state.job.ExecutionTimeout())
 		state.currentTimeoutType = normalExecution
-		context.SetReceiveTimeout(state.job.ExecutionTimeout() + 1)
+		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		var s = message.StepInfos
 		state.statistics.Update(s)
 
@@ -130,18 +124,15 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		case normalExecution:
 			//TODO LOG the info about normal execution exceeded
 			state.currentTimeoutType = executionTimeout
-			fmt.Println(state.job.ExecutionTimeout())
 			context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		case executionTimeout:
 			state.currentTimeoutType = suicideTimeout
-			fmt.Println(state.suicideTimeout)
 			context.SetReceiveTimeout(state.suicideTimeout)
 			context.Children()[0].Stop()
 			// unlock will be auto called by stop of runner
 		case suicideTimeout:
 			//cancel
 			//unlock
-			fmt.Printf("Suicide timeout called")
 			panic("SUICIDE_TIMEOUT")
 		default:
 			//TODO check behavior in case of restart.
