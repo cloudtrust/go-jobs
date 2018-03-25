@@ -8,6 +8,7 @@ import (
 // Root actor
 type MasterActor struct {
 	workers               map[string]*actor.PID
+	//workerPropsBuilder    func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props
 	workerProducerBuilder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor
 }
 
@@ -28,17 +29,17 @@ type StartJob struct {
 }
 
 func NewMasterActor(options ...MasterOption) func() actor.Actor {
-	return func() actor.Actor{
+	return func() actor.Actor {
 		var master = &MasterActor{
 			workers:               make(map[string]*actor.PID),
 			workerProducerBuilder: NewWorkerActor,
 		}
-	
+
 		// Apply options to the job
 		for _, opt := range options {
 			opt(master)
 		}
-	
+
 		return master
 	}
 }

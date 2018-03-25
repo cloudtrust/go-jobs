@@ -17,7 +17,7 @@ type WorkerActor struct {
 	job                *job.Job
 	lock               Lock
 	statistics         Statistics
-	runnerProducer     actor.Producer
+	runnerPropsBuilder     func() *actor.Props
 	suicideTimeout     time.Duration
 	currentTimeoutType int
 }
@@ -57,7 +57,7 @@ func NewWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) f
 			lock:           l,
 			statistics:     s,
 			suicideTimeout: 0,
-			runnerProducer: NewRunnerActor,
+			runnerPropsBuilder: BuildRunnerActorProps,
 		}
 
 		// Apply options to the job
@@ -75,9 +75,9 @@ func SuicideTimeout(d time.Duration) WorkerOption {
 	}
 }
 
-func runnerProducer(p actor.Producer) WorkerOption {
+func runnerPropsBuilder(p func() *actor.Props) WorkerOption {
 	return func(w *WorkerActor) {
-		w.runnerProducer = p
+		w.runnerPropsBuilder = p
 	}
 }
 
@@ -95,7 +95,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
 		// TODO with specific worker supervisor ?
-		props := actor.FromProducer(state.runnerProducer)
+		props := state.runnerPropsBuilder()
 		runner := context.Spawn(props)
 		// Tell Run to Runner
 

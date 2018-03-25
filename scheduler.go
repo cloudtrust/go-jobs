@@ -7,8 +7,6 @@ import (
 	"github.com/victorcoder/dkron/cron"
 )
 
-
-
 // Scheduler is main entry point.
 type Scheduler struct {
 	cron           *cron.Cron

@@ -27,7 +27,7 @@ func TestOneSuccessfulStepCase(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewRunnerActor)
+			props := BuildRunnerActorProps()
 			runner := c.Spawn(props)
 			runner.Tell(&Run{job})
 		case *Status:
@@ -58,7 +58,7 @@ func TestMultipleStepWiring(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewRunnerActor)
+			props := BuildRunnerActorProps()
 			runner := c.Spawn(props)
 			runner.Tell(&Run{job})
 		case *Status:
@@ -90,7 +90,7 @@ func TestInvalidResultFormat(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewRunnerActor)
+			props := BuildRunnerActorProps()
 			runner := c.Spawn(props)
 			runner.Tell(&Run{job})
 		case *Status:
@@ -122,7 +122,7 @@ func TestCleanupStepExecution(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewRunnerActor)
+			props := BuildRunnerActorProps()
 			runner := c.Spawn(props)
 			runner.Tell(&Run{job})
 		case *Status:
@@ -154,7 +154,7 @@ func TestErrorHandling(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewRunnerActor)
+			props := BuildRunnerActorProps()
 			runner := c.Spawn(props)
 			runner.Tell(&Run{job})
 		case *Status:

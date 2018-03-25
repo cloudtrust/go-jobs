@@ -2,7 +2,6 @@ package actor
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"runtime"
 
@@ -40,12 +39,12 @@ type Success struct {
 	stepInfos map[string]string
 }
 
-func NewRunnerActor() actor.Actor {
+func newRunnerActor() actor.Actor {
 	return &RunnerActor{}
 }
 
 func BuildRunnerActorProps() *actor.Props {
-	return actor.FromProducer(NewRunnerActor)
+	return actor.FromProducer(newRunnerActor)
 }
 
 func (state *RunnerActor) Receive(context actor.Context) {
@@ -53,14 +52,10 @@ func (state *RunnerActor) Receive(context actor.Context) {
 	case actor.Stopped:
 		context.Parent().Tell(&RunnerStopped{})
 	case *Run:
-
 		//Initialize map Step Status
-
 		var stepInfos = make(map[string]string)
 
 		for _, step := range msg.job.Steps() {
-			//TODO check comment avoir le nom de la fonction
-			fmt.Println(stepName(step))
 			stepInfos[stepName(step)] = "Iddle"
 		}
 
@@ -94,7 +89,6 @@ func (state *RunnerActor) Receive(context actor.Context) {
 			if ok {
 				context.Self().Tell(&Success{msg.job, mapRes, infos})
 			} else {
-				//context.Parent().Tell(&Status{Failure, map[string]string{"Reason": "Invalid type result for last step"}})
 				err := errors.New("Invalid type result for last step")
 				context.Self().Tell(&Failure{msg.job, err, infos})
 			}

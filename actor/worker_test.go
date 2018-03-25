@@ -46,7 +46,7 @@ func TestWorkerNominalCase(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerProducer(mockNewWorkingRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewWorkingRunnerActorBuilder)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -82,7 +82,7 @@ func TestAlreadyLocked(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerProducer(mockNewWorkingRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewWorkingRunnerActorBuilder)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -121,7 +121,7 @@ func TestFailure(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerProducer(mockNewFailingRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewFailingRunnerActorBuilder)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -154,7 +154,7 @@ func TestExecutionTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(10*time.Second), runnerProducer(mockNewSlowRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(10*time.Second), runnerPropsBuilder(mockNewSlowRunnerActorBuilder)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -204,7 +204,7 @@ func TestSuicideTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(1*time.Second), runnerProducer(mockNewInfiniteLoopRunnerActor)))
+			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(1*time.Second), runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder)))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -226,8 +226,10 @@ func TestSuicideTimeout(t *testing.T) {
 
 type mockWorkingRunnerActor struct{}
 
-func mockNewWorkingRunnerActor() actor.Actor {
-	return &mockWorkingRunnerActor{}
+func mockNewWorkingRunnerActorBuilder() *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
+		return &mockWorkingRunnerActor{}
+	})
 }
 
 func (state *mockWorkingRunnerActor) Receive(context actor.Context) {
@@ -246,8 +248,10 @@ func (state *mockWorkingRunnerActor) Receive(context actor.Context) {
 
 type mockFailingRunnerActor struct{}
 
-func mockNewFailingRunnerActor() actor.Actor {
-	return &mockFailingRunnerActor{}
+func mockNewFailingRunnerActorBuilder() *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
+		return &mockFailingRunnerActor{}
+	})
 }
 
 func (state *mockFailingRunnerActor) Receive(context actor.Context) {
@@ -270,8 +274,10 @@ type Run4 struct{}
 
 type mockSlowRunnerActor struct{}
 
-func mockNewSlowRunnerActor() actor.Actor {
-	return &mockSlowRunnerActor{}
+func mockNewSlowRunnerActorBuilder() *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
+		return &mockSlowRunnerActor{}
+	})
 }
 
 func (state *mockSlowRunnerActor) Receive(context actor.Context) {
@@ -301,8 +307,10 @@ func (state *mockSlowRunnerActor) Receive(context actor.Context) {
 
 type mockInfiniteLoopRunnerActor struct{}
 
-func mockNewInfiniteLoopRunnerActor() actor.Actor {
-	return &mockInfiniteLoopRunnerActor{}
+func mockNewInfiniteLoopRunnerActorBuilder() *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
+		return &mockInfiniteLoopRunnerActor{}
+	})
 }
 
 func (state *mockInfiniteLoopRunnerActor) Receive(context actor.Context) {
