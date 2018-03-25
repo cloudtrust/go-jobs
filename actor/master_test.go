@@ -29,7 +29,7 @@ func TestNominalCase(t *testing.T) {
 
 	var job, _ = job.NewJob("job", job.Steps(successfulStep))
 
-	props := actor.FromProducer(NewMasterActor(workerProducerBuilder(mockNewWorkerActor)))
+	props := BuildMasterActorProps(workerPropsBuilder(mockBuilderWorkerActorProps))
 	master := actor.Spawn(props)
 
 	master.Tell(&RegisterJob{label: "job", job: job, lock: mockLock, statistics: mockStatistics})
@@ -41,7 +41,7 @@ func TestNominalCase(t *testing.T) {
 }
 
 // test panic restart
-/*
+
 func TestRestartCase(t *testing.T) {
 	var wg sync.WaitGroup
 
@@ -58,7 +58,7 @@ func TestRestartCase(t *testing.T) {
 
 	var job, _ = job.NewJob("job", job.Steps(successfulStep))
 
-	props := actor.FromProducer(NewMasterActor(workerProducerBuilder(mockNewFailingWorkerActor))).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+	props := BuildMasterActorProps(workerPropsBuilder(mockBuilderFailingWorkerActorProps)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
 	master := actor.Spawn(props)
 
 	master.Tell(&RegisterJob{label: "job", job: job, lock: mockLock, statistics: mockStatistics})
@@ -67,7 +67,7 @@ func TestRestartCase(t *testing.T) {
 	wg.Wait()
 	master.GracefulStop()
 
-}*/
+}
 
 //test suicide
 
@@ -80,10 +80,10 @@ type mockWorkerActor struct {
 	statistics Statistics
 }
 
-func mockNewWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
-	return func() actor.Actor {
+func mockBuilderWorkerActorProps(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
 		return &mockWorkerActor{job: j, lock: l, statistics: s}
-	}
+	})
 }
 
 func (state *mockWorkerActor) Receive(context actor.Context) {
@@ -103,10 +103,10 @@ type mockFailingWorkerActor struct {
 	statistics Statistics
 }
 
-func mockNewFailingWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
-	return func() actor.Actor {
+func mockBuilderFailingWorkerActorProps(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props {
+	return actor.FromProducer(func() actor.Actor {
 		return &mockFailingWorkerActor{job: j, lock: l, statistics: s}
-	}
+	})
 }
 
 func (state *mockFailingWorkerActor) Receive(context actor.Context) {

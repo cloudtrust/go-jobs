@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
@@ -17,7 +18,7 @@ type WorkerActor struct {
 	job                *job.Job
 	lock               Lock
 	statistics         Statistics
-	runnerPropsBuilder     func() *actor.Props
+	runnerPropsBuilder func() *actor.Props
 	suicideTimeout     time.Duration
 	currentTimeoutType int
 }
@@ -38,6 +39,8 @@ type HeartBeat struct {
 
 type RunnerStopped struct{}
 
+type RunnerStarted struct{}
+
 type Lock interface {
 	Lock() error
 	Unlock() error
@@ -50,13 +53,17 @@ type Statistics interface {
 	Cancel(stepInfos, message map[string]string) error
 }
 
-func NewWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
+func BuildWorkerActorProps(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props {
+	return actor.FromProducer(newWorkerActor(j, l, s, options...)).WithSupervisor(masterActorSupervisorStrategy())
+}
+
+func newWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
 		var worker = &WorkerActor{
-			job:            j,
-			lock:           l,
-			statistics:     s,
-			suicideTimeout: 0,
+			job:                j,
+			lock:               l,
+			statistics:         s,
+			suicideTimeout:     0,
 			runnerPropsBuilder: BuildRunnerActorProps,
 		}
 
@@ -83,6 +90,9 @@ func runnerPropsBuilder(p func() *actor.Props) WorkerOption {
 
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
+	case *actor.Started:
+		fmt.Println("StartWorker")
+		fmt.Println(state.job.Name())
 	case *Execute:
 		if state.lock.Lock() != nil {
 			//TODO log lock not succeeded

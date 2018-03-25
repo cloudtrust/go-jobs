@@ -46,7 +46,8 @@ func TestWorkerNominalCase(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewWorkingRunnerActorBuilder)))
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics,
+				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -82,7 +83,8 @@ func TestAlreadyLocked(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewWorkingRunnerActorBuilder)))
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics,
+				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -121,7 +123,8 @@ func TestFailure(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, runnerPropsBuilder(mockNewFailingRunnerActorBuilder)))
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics,
+				runnerPropsBuilder(mockNewFailingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -154,7 +157,8 @@ func TestExecutionTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(10*time.Second), runnerPropsBuilder(mockNewSlowRunnerActorBuilder)))
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics, SuicideTimeout(10*time.Second),
+				runnerPropsBuilder(mockNewSlowRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -204,7 +208,8 @@ func TestSuicideTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := actor.FromProducer(NewWorkerActor(job, mockLock, mockStatistics, SuicideTimeout(1*time.Second), runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder)))
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics,
+				SuicideTimeout(1*time.Second), runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}

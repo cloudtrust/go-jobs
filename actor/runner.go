@@ -49,7 +49,9 @@ func BuildRunnerActorProps() *actor.Props {
 
 func (state *RunnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
-	case actor.Stopped:
+	case *actor.Started:
+		context.Parent().Tell(&RunnerStarted{})
+	case *actor.Stopped:
 		context.Parent().Tell(&RunnerStopped{})
 	case *Run:
 		//Initialize map Step Status

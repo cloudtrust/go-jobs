@@ -175,6 +175,40 @@ func TestErrorHandling(t *testing.T) {
 
 }
 
+func TestRunnerRestartWhenPanics(t *testing.T) {
+	var wg sync.WaitGroup
+	var restarted = 0
+
+	wg.Add(1)
+
+	var job, _ = job.NewJob("job", job.Steps(listInt, panicStep, sum))
+
+	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch c.Message().(type) {
+		case *actor.Started:
+			props := BuildRunnerActorProps()
+			c.Spawn(props)
+		case *Execute:
+			c.Children()[0].Tell(&Run{job})
+		case *Status:
+			wg.Done()
+		case *RunnerStarted:
+			restarted = restarted + 1
+
+			if restarted > 3 {
+				wg.Done()
+			} else {
+				c.Self().Tell(&Execute{})
+			}
+		}
+	}))
+
+	wg.Wait()
+	worker.GracefulStop()
+
+	assert.True(t, restarted > 3)
+}
+
 /* Utils */
 
 func successfulStep(context.Context, interface{}) (interface{}, error) {
@@ -183,6 +217,10 @@ func successfulStep(context.Context, interface{}) (interface{}, error) {
 
 func errorStep(context.Context, interface{}) (interface{}, error) {
 	return nil, errors.New("Step failed")
+}
+
+func panicStep(context.Context, interface{}) (interface{}, error) {
+	panic("Unexpected panic")
 }
 
 func listInt(context.Context, interface{}) (interface{}, error) {

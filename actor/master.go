@@ -7,9 +7,8 @@ import (
 
 // Root actor
 type MasterActor struct {
-	workers               map[string]*actor.PID
-	//workerPropsBuilder    func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props
-	workerProducerBuilder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor
+	workers            map[string]*actor.PID
+	workerPropsBuilder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props
 }
 
 type MasterOption func(w *MasterActor)
@@ -28,11 +27,15 @@ type StartJob struct {
 	label string
 }
 
-func NewMasterActor(options ...MasterOption) func() actor.Actor {
+func BuildMasterActorProps(options ...MasterOption) *actor.Props {
+	return actor.FromProducer(newMasterActor(options...))
+}
+
+func newMasterActor(options ...MasterOption) func() actor.Actor {
 	return func() actor.Actor {
 		var master = &MasterActor{
-			workers:               make(map[string]*actor.PID),
-			workerProducerBuilder: NewWorkerActor,
+			workers:            make(map[string]*actor.PID),
+			workerPropsBuilder: BuildWorkerActorProps,
 		}
 
 		// Apply options to the job
@@ -47,7 +50,7 @@ func NewMasterActor(options ...MasterOption) func() actor.Actor {
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = actor.FromProducer(state.workerProducerBuilder(msg.job, msg.lock, msg.statistics)).WithSupervisor(masterActorSupervisorStrategy())
+		var props = state.workerPropsBuilder(msg.job, msg.lock, msg.statistics)
 		var worker = context.Spawn(props)
 		state.workers[msg.label] = worker
 	case *StartJob:
@@ -55,15 +58,16 @@ func (state *MasterActor) Receive(context actor.Context) {
 	}
 }
 
-func workerProducerBuilder(builder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor) MasterOption {
+func workerPropsBuilder(builder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props) MasterOption {
 	return func(m *MasterActor) {
-		m.workerProducerBuilder = builder
+		m.workerPropsBuilder = builder
 	}
 }
 
 func masterActorSupervisorStrategy() actor.SupervisorStrategy {
 	return actor.NewOneForOneStrategy(10, 1000, masterActorDecider)
 }
+
 
 func masterActorDecider(reason interface{}) actor.Directive {
 	switch reason {
