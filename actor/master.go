@@ -28,7 +28,7 @@ type StartJob struct {
 }
 
 func BuildMasterActorProps(options ...MasterOption) *actor.Props {
-	return actor.FromProducer(newMasterActor(options...))
+	return actor.FromProducer(newMasterActor(options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
 }
 
 func newMasterActor(options ...MasterOption) func() actor.Actor {
@@ -64,10 +64,10 @@ func workerPropsBuilder(builder func(j *job.Job, l Lock, s Statistics, options .
 	}
 }
 
+// Supervision Strategy of MasterActor about its childs (i.e. WorkerActors)
 func masterActorSupervisorStrategy() actor.SupervisorStrategy {
 	return actor.NewOneForOneStrategy(10, 1000, masterActorDecider)
 }
-
 
 func masterActorDecider(reason interface{}) actor.Directive {
 	switch reason {

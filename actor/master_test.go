@@ -1,7 +1,7 @@
 package actor
 
 import (
-	"fmt"
+	"context"
 	"sync"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/cloudtrust/go-jobs/actor/mock"
 	"github.com/cloudtrust/go-jobs/job"
 	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
 )
 
 // test nominal
@@ -40,36 +41,48 @@ func TestNominalCase(t *testing.T) {
 
 }
 
-// test panic restart
+// test handling of worker panic -> restart
 
-func TestRestartCase(t *testing.T) {
+func TestWorkerRestartWhenPanicOccurs(t *testing.T) {
+
 	var wg sync.WaitGroup
-
-	var mockCtrl = gomock.NewController(t)
-	defer mockCtrl.Finish()
-
-	var mockLock = mock.NewLock(mockCtrl)
-	mockLock.EXPECT().Lock().Do(func() { wg.Done() }).Return(nil).Times(1)
-
-	var mockStatistics = mock.NewStatistics(mockCtrl)
-	mockStatistics.EXPECT().Start().Return(nil).Times(1)
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob("job", job.Steps(successfulStep))
+	var workerNumberOfCall = 0
 
-	props := BuildMasterActorProps(workerPropsBuilder(mockBuilderFailingWorkerActorProps)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+	var mockStep = func(context.Context, interface{}) (interface{}, error) {
+		workerNumberOfCall = workerNumberOfCall + 1
+
+		if workerNumberOfCall == 2 {
+			wg.Done()
+		}
+
+		return nil, nil
+	}
+
+	var job, _ = job.NewJob("job", job.Steps(mockStep))
+
+	props := BuildMasterActorProps(workerPropsBuilder(mockBuilderFailingWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{label: "job", job: job, lock: mockLock, statistics: mockStatistics})
+	master.Tell(&RegisterJob{label: "job", job: job, lock: nil, statistics: nil})
 	master.Tell(&StartJob{label: "job"})
 
 	wg.Wait()
 	master.GracefulStop()
 
+	assert.Equal(t, 2, workerNumberOfCall)
 }
 
-//test suicide
+func TestAlwaysPanicDecider(t *testing.T){
+	assert.Panics(t, func(){
+		alwaysPanicDecider(nil)
+	})
+}
+
+//Note: Supervision and Guardian strategy for Master Actor is tested in worker_test.
+
 
 /* Utils */
 
@@ -112,12 +125,8 @@ func mockBuilderFailingWorkerActorProps(j *job.Job, l Lock, s Statistics, option
 func (state *mockFailingWorkerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
 	case *actor.Started:
-		fmt.Println("Start")
-		state.statistics.Start()
-	case *actor.Stopped:
-		fmt.Println("stop")
+		state.job.Steps()[0](nil, nil)
 	case *Execute:
-		fmt.Println("testtst")
 		panic("Test")
 	}
 

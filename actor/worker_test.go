@@ -4,6 +4,7 @@ package actor
 //go:generate mockgen -destination=./mock/statistics.go -package=mock -mock_names=Statistics=Statistics github.com/cloudtrust/go-jobs/actor Statistics
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -128,12 +129,12 @@ func TestFailure(t *testing.T) {
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
-
 	}))
 
 	wg.Wait()
 	master.GracefulStop()
 }
+
 
 func TestExecutionTimeout(t *testing.T) {
 	var wg sync.WaitGroup
@@ -167,10 +168,12 @@ func TestExecutionTimeout(t *testing.T) {
 	wg.Wait()
 	master.GracefulStop()
 
+	// No more assertion needed, if the job finally terminates, it means unlock has been called.
+	// Unlock is only called if the runner actor has stopped.
+
 }
 
 func TestSuicideTimeout(t *testing.T) {
-
 	var wg sync.WaitGroup
 
 	var mockCtrl = gomock.NewController(t)
@@ -223,23 +226,75 @@ func TestSuicideTimeout(t *testing.T) {
 
 }
 
-//Test timeout mechanism, normal timeout, execution timeout, suicide timeout
+func TestRunnerRestartWhenPanicOccurs(t *testing.T) {
+
+	var wg sync.WaitGroup
+
+	var mockCtrl = gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	var mockLock = mock.NewLock(mockCtrl)
+
+	mockLock.EXPECT().Lock().Return(nil).Times(1)
+	mockLock.EXPECT().Unlock().Do(func() { wg.Done() }).Return(nil).MaxTimes(0)
+
+	var mockStatistics = mock.NewStatistics(mockCtrl)
+	mockStatistics.EXPECT().Start().Return(nil).Times(1)
+	mockStatistics.EXPECT().Update(gomock.Any()).Return(nil).MinTimes(4)
+	mockStatistics.EXPECT().Cancel(gomock.Any(), gomock.Any()).MaxTimes(0)
+	mockStatistics.EXPECT().Finish(gomock.Any(), gomock.Any()).MaxTimes(0)
+
+	wg.Add(1)
+
+	var firstStepNumberOfLaunch = 0
+
+	var firstStepLaunched = func(context.Context, interface{}) (interface{}, error) {
+		firstStepNumberOfLaunch = firstStepNumberOfLaunch + 1
+
+		if firstStepNumberOfLaunch == 2 {
+			wg.Done()
+		}
+
+		return nil, nil
+	}
+
+	var job, _ = job.NewJob("job", job.Steps(firstStepLaunched, panicStep))
+
+	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
+		switch c.Message().(type) {
+		case *actor.Started:
+			props := BuildWorkerActorProps(job, mockLock, mockStatistics)
+			worker := c.Spawn(props)
+			worker.Tell(&Execute{})
+		}
+	}))
+
+	wg.Wait()
+	master.GracefulStop()
+
+	assert.True(t, firstStepNumberOfLaunch >= 2)
+}
+
+
+//TODO Test normal timeout
 
 /* Utils */
 
 /** Mock Working Runner Actor **/
 
-type mockWorkingRunnerActor struct{}
+type mockWorkingRunnerActor struct {
+	job *job.Job
+}
 
-func mockNewWorkingRunnerActorBuilder() *actor.Props {
+func mockNewWorkingRunnerActorBuilder(j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
-		return &mockWorkingRunnerActor{}
+		return &mockWorkingRunnerActor{job: j}
 	})
 }
 
 func (state *mockWorkingRunnerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
-	case *Run:
+	case *actor.Started:
 		var stepInfos1 = map[string]string{"step1": "Running"}
 		var stepInfos2 = map[string]string{"step1": "Completed"}
 		var message = map[string]string{"Output": "123"}
@@ -251,17 +306,19 @@ func (state *mockWorkingRunnerActor) Receive(context actor.Context) {
 
 // /** Mock Failing Runner Actor **/
 
-type mockFailingRunnerActor struct{}
+type mockFailingRunnerActor struct {
+	job *job.Job
+}
 
-func mockNewFailingRunnerActorBuilder() *actor.Props {
+func mockNewFailingRunnerActorBuilder(j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
-		return &mockFailingRunnerActor{}
+		return &mockFailingRunnerActor{job: j}
 	})
 }
 
 func (state *mockFailingRunnerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
-	case *Run:
+	case *actor.Started:
 		var stepInfos1 = map[string]string{"step1": "Running"}
 		var stepInfos2 = map[string]string{"step1": "Failed"}
 		var message = map[string]string{"Reason": "Invalid input"}
@@ -277,11 +334,13 @@ type Run2 struct{}
 type Run3 struct{}
 type Run4 struct{}
 
-type mockSlowRunnerActor struct{}
+type mockSlowRunnerActor struct {
+	job *job.Job
+}
 
-func mockNewSlowRunnerActorBuilder() *actor.Props {
+func mockNewSlowRunnerActorBuilder(j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
-		return &mockSlowRunnerActor{}
+		return &mockSlowRunnerActor{job: j}
 	})
 }
 
@@ -289,32 +348,29 @@ func (state *mockSlowRunnerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
 	case *actor.Stopped:
 		context.Parent().Tell(&RunnerStopped{})
-	case *Run:
+	case *actor.Started:
 		var stepInfos1 = map[string]string{"step1": "Running"}
 		context.Parent().Tell(&HeartBeat{StepInfos: stepInfos1})
 		time.Sleep(5 * time.Second)
-		context.Self().Tell(&Run4{})
+		context.Self().Tell(&Run2{})
 	case *Run2:
 		time.Sleep(5 * time.Second)
-		fmt.Println("4")
 		context.Self().Tell(&Run3{})
 	case *Run3:
 		time.Sleep(5 * time.Second)
-		fmt.Println("4")
 		context.Self().Tell(&Run2{})
-	case *Run4:
-		for {
-		}
 	}
 }
 
 /** Mock Infinite Loop Runner Actor **/
 
-type mockInfiniteLoopRunnerActor struct{}
+type mockInfiniteLoopRunnerActor struct {
+	job *job.Job
+}
 
-func mockNewInfiniteLoopRunnerActorBuilder() *actor.Props {
+func mockNewInfiniteLoopRunnerActorBuilder(j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
-		return &mockInfiniteLoopRunnerActor{}
+		return &mockInfiniteLoopRunnerActor{job: j}
 	})
 }
 
@@ -322,7 +378,7 @@ func (state *mockInfiniteLoopRunnerActor) Receive(context actor.Context) {
 	switch context.Message().(type) {
 	case *actor.Stopped:
 		context.Parent().Tell(&RunnerStopped{})
-	case *Run:
+	case *actor.Started:
 		var stepInfos1 = map[string]string{"step1": "Running"}
 		context.Parent().Tell(&HeartBeat{StepInfos: stepInfos1})
 		for {
@@ -336,7 +392,7 @@ func (state *mockInfiniteLoopRunnerActor) Receive(context actor.Context) {
 		context.Self().Tell(&Run4{})
 	case *Run4:
 		for {
-			fmt.Printf("ttt")
+			fmt.Printf("")
 		}
 	}
 }

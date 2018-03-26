@@ -18,7 +18,7 @@ type WorkerActor struct {
 	job                *job.Job
 	lock               Lock
 	statistics         Statistics
-	runnerPropsBuilder func() *actor.Props
+	runnerPropsBuilder func(job *job.Job) *actor.Props
 	suicideTimeout     time.Duration
 	currentTimeoutType int
 }
@@ -54,7 +54,7 @@ type Statistics interface {
 }
 
 func BuildWorkerActorProps(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props {
-	return actor.FromProducer(newWorkerActor(j, l, s, options...)).WithSupervisor(masterActorSupervisorStrategy())
+	return actor.FromProducer(newWorkerActor(j, l, s, options...)).WithSupervisor(workerActorSupervisorStrategy())
 }
 
 func newWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
@@ -82,7 +82,7 @@ func SuicideTimeout(d time.Duration) WorkerOption {
 	}
 }
 
-func runnerPropsBuilder(p func() *actor.Props) WorkerOption {
+func runnerPropsBuilder(p func(job *job.Job) *actor.Props) WorkerOption {
 	return func(w *WorkerActor) {
 		w.runnerPropsBuilder = p
 	}
@@ -105,12 +105,10 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		// Spawn Runner
 		// TODO with specific worker supervisor ?
-		props := state.runnerPropsBuilder()
-		runner := context.Spawn(props)
-		// Tell Run to Runner
+		props := state.runnerPropsBuilder(state.job)
+		context.Spawn(props)
 
 		state.statistics.Start()
-		runner.Tell(&Run{state.job})
 	case *Status:
 		if message.status == Completed {
 			state.statistics.Finish(message.infos, message.message)
@@ -144,10 +142,15 @@ func (state *WorkerActor) Receive(context actor.Context) {
 			//cancel
 			//unlock
 			panic("SUICIDE_TIMEOUT")
-		default:
-			//TODO check behavior in case of restart.
-			//very likely unlock and cancel should be called manually
-			panic("UNKNOWN_TIMEOUT")
 		}
 	}
+}
+
+// Supervision Strategy of WorkActor about its childs (i.e. RunnerActors)
+func workerActorSupervisorStrategy() actor.SupervisorStrategy {
+	return actor.NewOneForOneStrategy(2, 1*time.Second, restartDecider)
+}
+
+func restartDecider(reason interface{}) actor.Directive {
+	return actor.RestartDirective
 }

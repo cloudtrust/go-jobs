@@ -27,9 +27,8 @@ func TestOneSuccessfulStepCase(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps()
-			runner := c.Spawn(props)
-			runner.Tell(&Run{job})
+			props := BuildRunnerActorProps(job)
+			c.Spawn(props)
 		case *Status:
 			result = msg.status
 			output = msg.message
@@ -58,9 +57,8 @@ func TestMultipleStepWiring(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps()
-			runner := c.Spawn(props)
-			runner.Tell(&Run{job})
+			props := BuildRunnerActorProps(job)
+			c.Spawn(props)
 		case *Status:
 			result = msg.status
 			output = msg.message
@@ -90,9 +88,8 @@ func TestInvalidResultFormat(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps()
-			runner := c.Spawn(props)
-			runner.Tell(&Run{job})
+			props := BuildRunnerActorProps(job)
+			c.Spawn(props)
 		case *Status:
 			result = msg.status
 			output = msg.message
@@ -122,9 +119,8 @@ func TestCleanupStepExecution(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps()
-			runner := c.Spawn(props)
-			runner.Tell(&Run{job})
+			props := BuildRunnerActorProps(job)
+			c.Spawn(props)
 		case *Status:
 			result = msg.status
 			output = msg.message
@@ -154,9 +150,8 @@ func TestErrorHandling(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps()
-			runner := c.Spawn(props)
-			runner.Tell(&Run{job})
+			props := BuildRunnerActorProps(job)
+			c.Spawn(props)
 		case *Status:
 			result = msg.status
 			output = msg.message
@@ -173,40 +168,6 @@ func TestErrorHandling(t *testing.T) {
 	expectedOutput := map[string]string{"Reason": "Step failed", "CleanupError": "Cleanup error"}
 	assert.Equal(t, expectedOutput, output)
 
-}
-
-func TestRunnerRestartWhenPanics(t *testing.T) {
-	var wg sync.WaitGroup
-	var restarted = 0
-
-	wg.Add(1)
-
-	var job, _ = job.NewJob("job", job.Steps(listInt, panicStep, sum))
-
-	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
-		switch c.Message().(type) {
-		case *actor.Started:
-			props := BuildRunnerActorProps()
-			c.Spawn(props)
-		case *Execute:
-			c.Children()[0].Tell(&Run{job})
-		case *Status:
-			wg.Done()
-		case *RunnerStarted:
-			restarted = restarted + 1
-
-			if restarted > 3 {
-				wg.Done()
-			} else {
-				c.Self().Tell(&Execute{})
-			}
-		}
-	}))
-
-	wg.Wait()
-	worker.GracefulStop()
-
-	assert.True(t, restarted > 3)
 }
 
 /* Utils */

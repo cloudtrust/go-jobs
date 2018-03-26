@@ -14,9 +14,8 @@ const (
 	Failed    = "FAILED"
 )
 
-type RunnerActor struct{}
-
-type Run struct {
+// RunnerActor has a state with the job in order to be able to automatically restart it if panic occurs.
+type RunnerActor struct {
 	job *job.Job
 }
 
@@ -39,30 +38,30 @@ type Success struct {
 	stepInfos map[string]string
 }
 
-func newRunnerActor() actor.Actor {
-	return &RunnerActor{}
+func newRunnerActor(j *job.Job) actor.Actor {
+	return &RunnerActor{job: j}
 }
 
-func BuildRunnerActorProps() *actor.Props {
-	return actor.FromProducer(newRunnerActor)
+func BuildRunnerActorProps(j *job.Job) *actor.Props {
+	return actor.FromProducer(func() actor.Actor { return newRunnerActor(j) })
 }
 
 func (state *RunnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
-	case *actor.Started:
-		context.Parent().Tell(&RunnerStarted{})
 	case *actor.Stopped:
 		context.Parent().Tell(&RunnerStopped{})
-	case *Run:
+	case *actor.Started:
+		context.Parent().Tell(&RunnerStarted{})
+
 		//Initialize map Step Status
 		var stepInfos = make(map[string]string)
 
-		for _, step := range msg.job.Steps() {
+		for _, step := range state.job.Steps() {
 			stepInfos[stepName(step)] = "Iddle"
 		}
 
 		i := 0
-		context.Self().Tell(&NextStep{msg.job, nil, i, stepInfos})
+		context.Self().Tell(&NextStep{state.job, nil, i, stepInfos})
 
 	case *NextStep:
 		var step = msg.job.Steps()[msg.i]
