@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	hostPort = flag.String("hostport", "172.19.0.2:26257", "cockroach host:port")
-	user     = flag.String("user", "job", "user name")
-	db       = flag.String("db", "jobs", "database name")
+	hostPort    = flag.String("hostport", "172.19.0.2:26257", "cockroach host:port")
+	user        = flag.String("user", "job", "user name")
+	db          = flag.String("db", "jobs", "database name")
+	integration = flag.Bool("integration", false, "run the integration tests")
 )
 
 func TestMain(m *testing.M) {
@@ -27,6 +28,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestNewLock(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -50,6 +54,9 @@ func TestNewLock(t *testing.T) {
 }
 
 func TestEnable(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -91,6 +98,9 @@ func TestEnable(t *testing.T) {
 }
 
 func TestDisable(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -126,6 +136,9 @@ func TestDisable(t *testing.T) {
 }
 
 func TestEnableDisableMultipleLocks(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -162,6 +175,9 @@ func TestEnableDisableMultipleLocks(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -210,6 +226,9 @@ func TestLock(t *testing.T) {
 }
 
 func TestUnlock(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -244,6 +263,9 @@ func TestUnlock(t *testing.T) {
 }
 
 func TestLockWhenDisabled(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -257,10 +279,13 @@ func TestLockWhenDisabled(t *testing.T) {
 	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
 	assert.Nil(t, l.Disable())
 	var err = l.Lock()
-	assert.IsType(t, &Disabled{}, err)
+	assert.IsType(t, &ErrDisabled{}, err)
 }
 
 func TestLockWithMultipleComponents(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -280,8 +305,8 @@ func TestLockWithMultipleComponents(t *testing.T) {
 	assert.Nil(t, l1.Lock())
 	assert.True(t, l1.OwningLock())
 	assert.False(t, l2.OwningLock())
-	assert.IsType(t, &Unauthorised{}, l2.Lock())
-	assert.IsType(t, &Unauthorised{}, l2.Unlock())
+	assert.IsType(t, &ErrUnauthorised{}, l2.Lock())
+	assert.IsType(t, &ErrUnauthorised{}, l2.Unlock())
 
 	// l1 unlocks.
 	assert.Nil(t, l1.Unlock())
@@ -292,12 +317,15 @@ func TestLockWithMultipleComponents(t *testing.T) {
 	assert.Nil(t, l2.Lock())
 	assert.True(t, l2.OwningLock())
 	assert.False(t, l1.OwningLock())
-	assert.IsType(t, &Unauthorised{}, l1.Lock())
-	assert.IsType(t, &Unauthorised{}, l1.Unlock())
+	assert.IsType(t, &ErrUnauthorised{}, l1.Lock())
+	assert.IsType(t, &ErrUnauthorised{}, l1.Unlock())
 	assert.Nil(t, l2.Unlock())
 }
 
 func TestForceLock(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -316,7 +344,7 @@ func TestForceLock(t *testing.T) {
 
 	// L1 has lock.
 	assert.Nil(t, l1.Lock())
-	assert.IsType(t, &Unauthorised{}, l2.Lock())
+	assert.IsType(t, &ErrUnauthorised{}, l2.Lock())
 	assert.True(t, l1.OwningLock())
 	assert.False(t, l2.OwningLock())
 

@@ -1,4 +1,11 @@
-// package lock 
+// Package lock provides a mechanism for distributed locks.
+// Several instances of components (same component name, different component IDs) can
+// compete to execute Jobs. We want that a given job (recognised by its job name) is
+// executed only once at a time.
+// To achive that we use CockroachDB, a distributed ACID DB. Each component will
+// execute a transaction to lock the job, the transaction that succeed will obtain the lock,
+// and the component can execute the corresponding job.
+// Also, when a lock is disabled, the Lock method will always return an ErrDisabled error.
 package lock
 
 import (
@@ -94,9 +101,9 @@ func New(db DB, componentName, componentID, jobName, jobID string, jobMaxDuratio
 	return l
 }
 
-// Unauthorised is the error returned when a worker try to reserve a job and another worker is already
-// doing it.
-type Unauthorised struct {
+// ErrUnauthorised is the error returned when there is a call to the Lock method, but there is already another component
+// owning the lock.
+type ErrUnauthorised struct {
 	componentName    string
 	componentID      string
 	jobName          string
@@ -107,26 +114,26 @@ type Unauthorised struct {
 	lckJobID         string
 }
 
-func (e *Unauthorised) Error() string {
+func (e *ErrUnauthorised) Error() string {
 	return fmt.Sprintf("component '%s:%s' could not lock job '%s:%s', component '%s:%s' job '%s:%s' has the lock",
 		e.componentName, e.componentID, e.jobName, e.jobID, e.lckComponentName, e.lckComponentID, e.lckJobName, e.lckJobID)
 }
 
-// Disabled is the error returned when a job is disabled.
-type Disabled struct {
+// ErrDisabled is the error returned when the lock is disabled.
+type ErrDisabled struct {
 	componentName string
 	jobName       string
 }
 
-func (e *Disabled) Error() string {
+func (e *ErrDisabled) Error() string {
 	return fmt.Sprintf("job '%s' for component '%s' is disabled", e.jobName, e.componentName)
 }
 
 // Lock try to reserve and lock the job in the distributed DB. It returns a nil error if the reservation succeeded, and
-// an error if it didn't
+// an error if it didn't.
 func (l *Lock) Lock() error {
 	if !l.IsEnabled() {
-		return &Disabled{componentName: l.componentName, jobName: l.jobName}
+		return &ErrDisabled{componentName: l.componentName, jobName: l.jobName}
 	}
 	// If the job exceed the job maxduration, we can force a lock. It means that even if another component has the lock,
 	// we can steal the lock from him.
@@ -152,12 +159,12 @@ func (l *Lock) Lock() error {
 		lck.enabled == true && lck.status == "LOCKED":
 		return nil
 	default:
-		return &Unauthorised{componentName: l.componentName, componentID: l.componentID, jobName: l.jobName, jobID: l.jobID,
+		return &ErrUnauthorised{componentName: l.componentName, componentID: l.componentID, jobName: l.jobName, jobID: l.jobID,
 			lckComponentName: lck.componentName, lckComponentID: lck.componentID, lckJobName: lck.jobName, lckJobID: lck.jobID}
 	}
 }
 
-// Unlock unlock the job in the distributed DB. A job can be unlocked it it is disabled.
+// Unlock unlocks the lock in the distributed DB. A job can be unlocked it it is disabled.
 // Unlock returns a nil error if the operation succeeded, and an error if it didn't.
 func (l *Lock) Unlock() error {
 	l.db.Exec(unlockStmt, l.componentName, l.componentID, l.jobName, l.jobID)
@@ -170,12 +177,12 @@ func (l *Lock) Unlock() error {
 		lck.status == "UNLOCKED":
 		return nil
 	default:
-		return &Unauthorised{componentName: l.componentName, componentID: l.componentID, jobName: l.jobName, jobID: l.jobID,
+		return &ErrUnauthorised{componentName: l.componentName, componentID: l.componentID, jobName: l.jobName, jobID: l.jobID,
 			lckComponentName: lck.componentName, lckComponentID: lck.componentID, lckJobName: lck.jobName, lckJobID: lck.jobID}
 	}
 }
 
-// getLock returns the whole lock database entry for the current Job.
+// getLock returns the whole lock database entry for the current job.
 func (l *Lock) getLock() (*table, error) {
 	var row = l.db.QueryRow(selectLockStmt, l.componentName, l.jobName)
 	var (
