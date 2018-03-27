@@ -15,13 +15,20 @@ const (
 		job_name STRING,
 		job_id STRING,
 		start_time TIMESTAMPTZ,
-		step_infos STRING,
 		last_update TIMESTAMPTZ,
-		last_execution TIMESTAMPTZ,
-		last_execution_status STRING,
-		last_execution_message STRING,
-		last_execution_duration INTERVAL,
-		last_success TIMESTAMPTZ,
+		step_infos STRING,
+		last_completed_component_id STRING,
+		last_completed_job_id STRING,
+		last_completed_start_time TIMESTAMPTZ,
+		last_completed_end_time TIMESTAMPTZ,
+		last_completed_step_infos STRING,
+		last_completed_message STRING,
+		last_failed_component_id STRING,
+		last_failed_job_id STRING,
+		last_failed_start_time TIMESTAMPTZ,
+		last_failed_end_time TIMESTAMPTZ,
+		last_failed_step_infos STRING,
+		last_failed_message STRING,
 		PRIMARY KEY (component_name, job_name))`
 	insertStatusStmt = `INSERT INTO status (
 		component_name,
@@ -29,26 +36,29 @@ const (
 		job_name,
 		job_id,
 		start_time,
-		step_infos,
 		last_update,
-		last_execution,
-		last_execution_status,
-		last_execution_message,
-		last_execution_duration,
-		last_success)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+		step_infos,
+		last_completed_component_id,
+		last_completed_job_id,
+		last_completed_start_time,
+		last_completed_end_time,
+		last_completed_step_infos,
+		last_completed_message,
+		last_failed_component_id,
+		last_failed_job_id,
+		last_failed_start_time,
+		last_failed_end_time,
+		last_failed_step_infos,
+		last_failed_message)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
 	selectStatusStmt = `SELECT * FROM status WHERE (component_name = $1 AND job_name = $2)`
 	startStmt        = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND job_name = $3)`
 	updateStatusStmt = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND job_name = $4)`
-	finishStmt       = `UPDATE status SET (last_update, last_execution_message, step_infos, last_execution, last_success, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6, $7) WHERE (component_name = $8 AND job_name = $9)`
-	cancelStmt       = `UPDATE status SET (last_update, last_execution_message, step_infos, last_execution, last_execution_duration, last_execution_status) = ($1, $2, $3, $4, $5, $6) WHERE (component_name = $7 AND job_name = $8)`
+	completeStmt     = `UPDATE status SET (last_completed_component_id, last_completed_job_id, last_completed_start_time, last_completed_end_time, last_completed_step_infos, last_completed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
+	failStmt         = `UPDATE status SET (last_failed_component_id, last_failed_job_id, last_failed_start_time, last_failed_end_time, last_failed_step_infos, last_failed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
 )
 
-var (
-	refEpoch = time.Unix(0, 0).UTC()
-)
-
-// Status is the locking module.
+// Status is the status module.
 type Status struct {
 	db            DB
 	componentName string
@@ -65,18 +75,25 @@ type DB interface {
 
 // Table is a struct representing a row of the database status table.
 type Table struct {
-	componentName         string
-	componentID           string
-	jobName               string
-	jobID                 string
-	startTime             time.Time
-	stepInfos             string
-	lastUpdate            time.Time
-	lastExecution         time.Time
-	lastExecutionStatus   string
-	lastExecutionMessage  string
-	lastExecutionDuration time.Duration
-	lastSuccess           time.Time
+	componentName            string
+	componentID              string
+	jobName                  string
+	jobID                    string
+	startTime                time.Time
+	lastUpdate               time.Time
+	stepInfos                string
+	lastCompletedComponentID string
+	lastCompletedJobID       string
+	lastCompletedStart       time.Time
+	lastCompletedEnd         time.Time
+	lastCompletedStepInfos   string
+	lastCompletedMessage     string
+	lastFailedComponentID    string
+	lastFailedJobID          string
+	lastFailedStart          time.Time
+	lastFailedEnd            time.Time
+	lastFailedStepInfos      string
+	lastFailedMessage        string
 }
 
 // New returns a new status module.
@@ -91,7 +108,9 @@ func New(db DB, componentName, componentID, jobName, jobID string) *Status {
 
 	// Init DB: create table and status entry for job.
 	db.Exec(createStatusTblStmt)
-	db.Exec(insertStatusStmt, s.componentName, s.componentID, s.jobName, s.jobID, refEpoch, "", refEpoch, refEpoch, "", "", 0*time.Second, refEpoch)
+	var t = time.Time{}
+	db.Exec(insertStatusStmt, s.componentName, s.componentID, s.jobName, s.jobID, t, t, "", "", "", t, t, "", "", "", "", t, t, "", "")
+
 	return s
 }
 
@@ -104,36 +123,40 @@ func (s *Status) Start() error {
 // GetStatus returns the whole status database entry for the current Job.
 func (s *Status) GetStatus() (*Table, error) {
 	var row = s.db.QueryRow(selectStatusStmt, s.componentName, s.jobName)
+	var (
+		cName, cID, jName, jID, stepInfos                                                           string
+		lastCompletedComponentID, lastCompletedJobID, lastCompletedStepInfos, lastCompletedMessage  string
+		lastFailedComponentID, lastFailedJobID, lastFailedStepInfos, lastFailedMessage              string
+		startTime, lastUpdate, lastCompletedStart, lastCompletedEnd, lastFailedStart, lastFailedEnd time.Time
+	)
 
-	var cName, cID, jName, jID, stepInfos, lastExecutionStatus, lastExecutionMessage, interval string
-	var startTime, lastUpdate, lastExecution, lastSuccess time.Time
-	var err = row.Scan(&cName, &cID, &jName, &jID, &startTime, &stepInfos, &lastUpdate, &lastExecution, &lastExecutionStatus, &lastExecutionMessage, &interval, &lastSuccess)
+	var err = row.Scan(&cName, &cID, &jName, &jID, &startTime, &lastUpdate, &stepInfos,
+		&lastCompletedComponentID, &lastCompletedJobID, &lastCompletedStart, &lastCompletedEnd, &lastCompletedStepInfos, &lastCompletedMessage,
+		&lastFailedComponentID, &lastFailedJobID, &lastFailedStart, &lastFailedEnd, &lastFailedStepInfos, &lastFailedMessage)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get job from DB")
 	}
 
-	var duration time.Duration
-	{
-		var err error
-		duration, err = time.ParseDuration(interval)
-		if err != nil {
-			return nil, errors.Wrap(err, "could not parse duration")
-		}
-	}
-
 	return &Table{
-		componentName:         cName,
-		componentID:           cID,
-		jobName:               jName,
-		jobID:                 jID,
-		startTime:             startTime.UTC(),
-		stepInfos:             stepInfos,
-		lastUpdate:            lastUpdate.UTC(),
-		lastExecution:         lastExecution.UTC(),
-		lastExecutionStatus:   lastExecutionStatus,
-		lastExecutionMessage:  lastExecutionMessage,
-		lastExecutionDuration: duration,
-		lastSuccess:           lastSuccess.UTC(),
+		componentName:            cName,
+		componentID:              cID,
+		jobName:                  jName,
+		jobID:                    jID,
+		startTime:                startTime.UTC(),
+		lastUpdate:               lastUpdate.UTC(),
+		stepInfos:                stepInfos,
+		lastCompletedComponentID: lastCompletedComponentID,
+		lastCompletedJobID:       lastCompletedJobID,
+		lastCompletedStart:       lastCompletedStart.UTC(),
+		lastCompletedEnd:         lastCompletedEnd.UTC(),
+		lastCompletedStepInfos:   lastCompletedStepInfos,
+		lastCompletedMessage:     lastCompletedMessage,
+		lastFailedComponentID:    lastFailedComponentID,
+		lastFailedJobID:          lastFailedJobID,
+		lastFailedStart:          lastFailedStart.UTC(),
+		lastFailedEnd:            lastFailedEnd.UTC(),
+		lastFailedStepInfos:      lastFailedStepInfos,
+		lastFailedMessage:        lastFailedMessage,
 	}, nil
 }
 
@@ -141,10 +164,9 @@ func (s *Status) GetStatus() (*Table, error) {
 func (s *Status) GetStartTime() (time.Time, error) {
 	var t, err = s.GetStatus()
 	if err != nil {
-		return refEpoch, err
+		return time.Time{}, err
 	}
 	return t.startTime, nil
-
 }
 
 // Update updates the job status.
@@ -154,13 +176,13 @@ func (s *Status) Update(stepInfos map[string]string) error {
 		var err error
 		infos, err = json.Marshal(stepInfos)
 		if err != nil {
-			return errors.Wrap(err, "could not marshal json")
+			return errors.Wrap(err, "update failed, could not marshal stepInfos json")
 		}
 	}
 
 	var _, err = s.db.Exec(updateStatusStmt, time.Now().UTC(), string(infos), s.componentName, s.jobName)
 	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
+		return errors.Wrapf(err, "update failed, component '%s' could not update status '%s'", s.componentName, s.jobName)
 	}
 
 	return nil
@@ -186,17 +208,7 @@ func (s *Status) Complete(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var startTime time.Time
-	{
-		var err error
-		startTime, err = s.GetStartTime()
-		if err != nil {
-			return err
-		}
-	}
-
-	var now = time.Now().UTC()
-	var _, err = s.db.Exec(finishStmt, now, string(msg), string(infos), now, now, time.Since(startTime).String(), "SUCCESS", s.componentName, s.jobName)
+	var _, err = s.db.Exec(completeStmt, s.componentID, s.jobID, time.Now().UTC(), string(infos), string(msg), s.componentName, s.jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
 	}
@@ -223,17 +235,7 @@ func (s *Status) Fail(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var startTime time.Time
-	{
-		var err error
-		startTime, err = s.GetStartTime()
-		if err != nil {
-			return err
-		}
-	}
-
-	var now = time.Now().UTC()
-	var _, err = s.db.Exec(cancelStmt, now, string(msg), string(infos), now, time.Since(startTime), "FAILED", s.componentName, s.jobName)
+	var _, err = s.db.Exec(failStmt, s.componentID, s.jobID, time.Now().UTC(), string(infos), string(msg), s.componentName, s.jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
 	}

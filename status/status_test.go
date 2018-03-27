@@ -34,25 +34,35 @@ func TestNewStatus(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var sts = &Table{
-		componentName:         "cmp",
-		componentID:           strconv.FormatUint(rand.Uint64(), 10),
-		jobName:               "job",
-		jobID:                 strconv.FormatUint(rand.Uint64(), 10),
-		startTime:             refEpoch,
-		stepInfos:             "",
-		lastUpdate:            refEpoch,
-		lastExecution:         refEpoch,
-		lastExecutionStatus:   "",
-		lastExecutionMessage:  "",
-		lastExecutionDuration: 0 * time.Second,
-		lastSuccess:           refEpoch,
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var s = New(db, sts.componentName, sts.componentID, sts.jobName, sts.jobID)
-	var stsTbl, err = s.GetStatus()
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, sts, stsTbl)
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.Zero(t, tbl.startTime)
+	assert.Zero(t, tbl.lastUpdate)
+	assert.Equal(t, "", tbl.stepInfos)
+	assert.Equal(t, "", tbl.lastCompletedComponentID)
+	assert.Equal(t, "", tbl.lastCompletedJobID)
+	assert.Zero(t, tbl.lastCompletedStart)
+	assert.Zero(t, tbl.lastCompletedEnd)
+	assert.Equal(t, "", tbl.lastCompletedStepInfos)
+	assert.Equal(t, "", tbl.lastCompletedMessage)
+	assert.Equal(t, "", tbl.lastFailedComponentID)
+	assert.Equal(t, "", tbl.lastFailedJobID)
+	assert.Zero(t, tbl.lastFailedStart)
+	assert.Zero(t, tbl.lastFailedEnd)
+	assert.Equal(t, "", tbl.lastFailedStepInfos)
+	assert.Equal(t, "", tbl.lastFailedMessage)
 }
 
 func TestStart(t *testing.T) {
@@ -62,37 +72,73 @@ func TestStart(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var sts = &Table{
-		componentName:         "cmp",
-		componentID:           strconv.FormatUint(rand.Uint64(), 10),
-		jobName:               "job",
-		jobID:                 strconv.FormatUint(rand.Uint64(), 10),
-		startTime:             time.Time{},
-		stepInfos:             "",
-		lastUpdate:            time.Time{},
-		lastExecution:         time.Time{},
-		lastExecutionStatus:   "",
-		lastExecutionMessage:  "",
-		lastExecutionDuration: 0 * time.Second,
-		lastSuccess:           time.Time{},
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var s = New(db, sts.componentName, sts.componentID, sts.jobName, sts.jobID)
-
-	// Get start time
-	start, err := s.GetStartTime()
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
 	assert.Nil(t, err)
+	assert.Zero(t, tbl.startTime)
 
-	startUpdated, err := s.GetStartTime()
-	assert.Nil(t, err)
-	assert.Equal(t, start, startUpdated)
-
-	// Update start time
+	// Start.
 	assert.Nil(t, s.Start())
+	tbl, err = s.GetStatus()
+	assert.Nil(t, err)
 
-	startUpdated, err = s.GetStartTime()
-	assert.NotEqual(t, start, startUpdated)
+	// start is modified.
+	assert.NotZero(t, tbl.startTime)
+
+	// The other fields stay the same.
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.Zero(t, tbl.lastUpdate)
+	assert.Equal(t, "", tbl.stepInfos)
+	assert.Equal(t, "", tbl.lastCompletedComponentID)
+	assert.Equal(t, "", tbl.lastCompletedJobID)
+	assert.Zero(t, tbl.lastCompletedStart)
+	assert.Zero(t, tbl.lastCompletedEnd)
+	assert.Equal(t, "", tbl.lastCompletedStepInfos)
+	assert.Equal(t, "", tbl.lastCompletedMessage)
+	assert.Equal(t, "", tbl.lastFailedComponentID)
+	assert.Equal(t, "", tbl.lastFailedJobID)
+	assert.Zero(t, tbl.lastFailedStart)
+	assert.Zero(t, tbl.lastFailedEnd)
+	assert.Equal(t, "", tbl.lastFailedStepInfos)
+	assert.Equal(t, "", tbl.lastFailedMessage)
 }
+
+func TestGetStartTime(t *testing.T) {
+	if !*integration {
+		t.Skip()
+	}
+	var db = setupCleanDB(t)
+	rand.Seed(time.Now().UnixNano())
+
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
+	assert.Nil(t, err)
+	assert.Zero(t, tbl.startTime)
+
+	// Start.
+	assert.Nil(t, s.Start())
+	tbl, err = s.GetStatus()
+	assert.Nil(t, err)
+	assert.NotZero(t, tbl.startTime)
+}
+
 func TestUpdate(t *testing.T) {
 	if !*integration {
 		t.Skip()
@@ -100,32 +146,46 @@ func TestUpdate(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var sts = &Table{
-		componentName:         "cmp",
-		componentID:           strconv.FormatUint(rand.Uint64(), 10),
-		jobName:               "job",
-		jobID:                 strconv.FormatUint(rand.Uint64(), 10),
-		startTime:             time.Time{},
-		stepInfos:             "",
-		lastUpdate:            time.Time{},
-		lastExecution:         time.Time{},
-		lastExecutionStatus:   "",
-		lastExecutionMessage:  "",
-		lastExecutionDuration: 0 * time.Second,
-		lastSuccess:           time.Time{},
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var s = New(db, sts.componentName, sts.componentID, sts.jobName, sts.jobID)
-
-	// Get status table
-	status, err := s.GetStatus()
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Zero(t, status.stepInfos)
+	assert.Zero(t, tbl.lastUpdate)
+	assert.Zero(t, tbl.stepInfos)
 
+	// Update.
 	assert.Nil(t, s.Update(map[string]string{"key": "val"}))
-	statusUpdated, err := s.GetStatus()
+	tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, "{\"key\":\"val\"}", statusUpdated.stepInfos)
+
+	// lastUpdate and stepInfos are modified.
+	assert.NotZero(t, tbl.lastUpdate)
+	assert.Equal(t, "{\"key\":\"val\"}", tbl.stepInfos)
+
+	// The other fields stay the same.
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.Zero(t, tbl.startTime)
+	assert.Equal(t, "", tbl.lastCompletedComponentID)
+	assert.Equal(t, "", tbl.lastCompletedJobID)
+	assert.Zero(t, tbl.lastCompletedStart)
+	assert.Zero(t, tbl.lastCompletedEnd)
+	assert.Equal(t, "", tbl.lastCompletedStepInfos)
+	assert.Equal(t, "", tbl.lastCompletedMessage)
+	assert.Equal(t, "", tbl.lastFailedComponentID)
+	assert.Equal(t, "", tbl.lastFailedJobID)
+	assert.Zero(t, tbl.lastFailedStart)
+	assert.Zero(t, tbl.lastFailedEnd)
+	assert.Equal(t, "", tbl.lastFailedStepInfos)
+	assert.Equal(t, "", tbl.lastFailedMessage)
 }
 
 func TestComplete(t *testing.T) {
@@ -135,33 +195,53 @@ func TestComplete(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var sts = &Table{
-		componentName:         "cmp",
-		componentID:           strconv.FormatUint(rand.Uint64(), 10),
-		jobName:               "job",
-		jobID:                 strconv.FormatUint(rand.Uint64(), 10),
-		startTime:             time.Time{},
-		stepInfos:             "",
-		lastUpdate:            time.Time{},
-		lastExecution:         time.Time{},
-		lastExecutionStatus:   "",
-		lastExecutionMessage:  "",
-		lastExecutionDuration: 0 * time.Second,
-		lastSuccess:           time.Time{},
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+		stepInfos     = map[string]string{"key": "stepInfos"}
+		msg           = map[string]string{"key": "message"}
+	)
 
-	var s = New(db, sts.componentName, sts.componentID, sts.jobName, sts.jobID)
-
-	// Get status table
-	status, err := s.GetStatus()
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Zero(t, status.stepInfos)
+	assert.Zero(t, tbl.lastCompletedComponentID)
+	assert.Zero(t, tbl.lastCompletedJobID)
+	assert.Zero(t, tbl.lastCompletedStart)
+	assert.Zero(t, tbl.lastCompletedEnd)
+	assert.Zero(t, tbl.lastCompletedStepInfos)
+	assert.Zero(t, tbl.lastCompletedMessage)
 
-	assert.Nil(t, s.Complete(map[string]string{"key": "val"}, map[string]string{"msg": "message"}))
-	statusUpdated, err := s.GetStatus()
+	// Complete.
+	assert.Nil(t, s.Start())
+	assert.Nil(t, s.Complete(stepInfos, msg))
+	tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Equal(t, "{\"key\":\"val\"}", statusUpdated.stepInfos)
-	assert.Equal(t, "{\"msg\":\"message\"}", statusUpdated.lastExecutionMessage)
+
+	// The fields lastCompleted[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.NotZero(t, tbl.lastCompletedStart)
+	assert.NotZero(t, tbl.lastCompletedEnd)
+	assert.Equal(t, "{\"key\":\"stepInfos\"}", tbl.lastCompletedStepInfos)
+	assert.Equal(t, "{\"key\":\"message\"}", tbl.lastCompletedMessage)
+	assert.Equal(t, tbl.startTime, tbl.lastCompletedStart)
+
+	// The other fields stay the same.
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.Zero(t, tbl.lastUpdate)
+	assert.Equal(t, "", tbl.stepInfos)
+	assert.Equal(t, "", tbl.lastFailedComponentID)
+	assert.Equal(t, "", tbl.lastFailedJobID)
+	assert.Zero(t, tbl.lastFailedStart)
+	assert.Zero(t, tbl.lastFailedEnd)
+	assert.Equal(t, "", tbl.lastFailedStepInfos)
+	assert.Equal(t, "", tbl.lastFailedMessage)
 }
 
 func TestFail(t *testing.T) {
@@ -171,34 +251,53 @@ func TestFail(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var sts = &Table{
-		componentName:         "cmp",
-		componentID:           strconv.FormatUint(rand.Uint64(), 10),
-		jobName:               "job",
-		jobID:                 strconv.FormatUint(rand.Uint64(), 10),
-		startTime:             time.Time{},
-		stepInfos:             "",
-		lastUpdate:            time.Time{},
-		lastExecution:         time.Time{},
-		lastExecutionStatus:   "",
-		lastExecutionMessage:  "",
-		lastExecutionDuration: 0 * time.Second,
-		lastSuccess:           time.Time{},
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+		stepInfos     = map[string]string{"key": "stepInfos"}
+		msg           = map[string]string{"key": "message"}
+	)
 
-	var s = New(db, sts.componentName, sts.componentID, sts.jobName, sts.jobID)
+	var s = New(db, componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus()
+	assert.Nil(t, err)
+	assert.Zero(t, tbl.lastFailedComponentID)
+	assert.Zero(t, tbl.lastFailedJobID)
+	assert.Zero(t, tbl.lastFailedStart)
+	assert.Zero(t, tbl.lastFailedEnd)
+	assert.Zero(t, tbl.lastFailedStepInfos)
+	assert.Zero(t, tbl.lastFailedMessage)
 
-	// Get status table
-	status, err := s.GetStatus()
+	// Complete.
+	assert.Nil(t, s.Start())
+	assert.Nil(t, s.Fail(stepInfos, msg))
+	tbl, err = s.GetStatus()
 	assert.Nil(t, err)
-	assert.Zero(t, status.stepInfos)
-	s.Start()
-	time.Sleep(1 * time.Second)
-	assert.Nil(t, s.Complete(map[string]string{"key": "val"}, map[string]string{"msg": "message"}))
-	statusUpdated, err := s.GetStatus()
-	assert.Nil(t, err)
-	assert.Equal(t, "{\"key\":\"val\"}", statusUpdated.stepInfos)
-	assert.Equal(t, "{\"msg\":\"message\"}", statusUpdated.lastExecutionMessage)
+
+	// The fields lastFailed[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.NotZero(t, tbl.lastFailedStart)
+	assert.NotZero(t, tbl.lastFailedEnd)
+	assert.Equal(t, "{\"key\":\"stepInfos\"}", tbl.lastFailedStepInfos)
+	assert.Equal(t, "{\"key\":\"message\"}", tbl.lastFailedMessage)
+	assert.Equal(t, tbl.startTime, tbl.lastFailedStart)
+
+	// The other fields stay the same.
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.Zero(t, tbl.lastUpdate)
+	assert.Equal(t, "", tbl.stepInfos)
+	assert.Equal(t, "", tbl.lastCompletedComponentID)
+	assert.Equal(t, "", tbl.lastCompletedJobID)
+	assert.Zero(t, tbl.lastCompletedStart)
+	assert.Zero(t, tbl.lastCompletedEnd)
+	assert.Equal(t, "", tbl.lastCompletedStepInfos)
+	assert.Equal(t, "", tbl.lastCompletedMessage)
 }
 
 func setupCleanDB(t *testing.T) *sql.DB {
