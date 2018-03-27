@@ -30,59 +30,58 @@ func TestNewLock(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-	var lockTbl, err = l.getLock()
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
+	var tbl, err = l.getLock()
 	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.True(t, tbl.enabled)
+	assert.Equal(t, "UNLOCKED", tbl.status)
+	assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
 }
 
 func TestEnable(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-	// Initially enabled
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
+
+	// Initially enabled.
 	assert.True(t, l.IsEnabled())
-	var lockTbl, err = l.getLock()
+	var tbl, err = l.getLock()
 	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
+	assert.True(t, tbl.enabled)
 
 	// Several calls to Enable have the same result.
-	assert.Nil(t, l.Enable())
-	assert.True(t, l.IsEnabled())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-
-	assert.Nil(t, l.Enable())
-	assert.True(t, l.IsEnabled())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-
-	assert.Nil(t, l.Enable())
-	assert.True(t, l.IsEnabled())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
+	for i := 0; i < 10; i++ {
+		assert.Nil(t, l.Enable())
+		assert.True(t, l.IsEnabled())
+		tbl, err = l.getLock()
+		assert.Nil(t, err)
+		assert.Equal(t, componentName, tbl.componentName)
+		assert.Equal(t, componentID, tbl.componentID)
+		assert.Equal(t, jobName, tbl.jobName)
+		assert.Equal(t, jobID, tbl.jobID)
+		assert.True(t, tbl.enabled)
+		assert.Equal(t, "UNLOCKED", tbl.status)
+		assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
+	}
 
 	// Disable/enable
 	assert.Nil(t, l.Disable())
@@ -90,202 +89,246 @@ func TestEnable(t *testing.T) {
 	assert.Nil(t, l.Enable())
 	assert.True(t, l.IsEnabled())
 }
+
 func TestDisable(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
+
+	// Several calls to Disable have the same result.
+	for i := 0; i < 10; i++ {
+		assert.Nil(t, l.Disable())
+		assert.False(t, l.IsEnabled())
+		var tbl, err = l.getLock()
+		assert.Nil(t, err)
+		assert.Equal(t, componentName, tbl.componentName)
+		assert.Equal(t, componentID, tbl.componentID)
+		assert.Equal(t, jobName, tbl.jobName)
+		assert.Equal(t, jobID, tbl.jobID)
+		assert.False(t, tbl.enabled)
+		assert.Equal(t, "UNLOCKED", tbl.status)
+		assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
 	}
 
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-
-	// Several calls to Enable have the same result.
-	tbl.enabled = false
-
-	assert.Nil(t, l.Disable())
-	assert.False(t, l.IsEnabled())
-	var lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-
-	assert.Nil(t, l.Disable())
-	assert.False(t, l.IsEnabled())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-
-	assert.Nil(t, l.Disable())
-	assert.False(t, l.IsEnabled())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-
-	// Enable/disable
+	// Enable/Disable.
 	assert.Nil(t, l.Enable())
 	assert.True(t, l.IsEnabled())
 	assert.Nil(t, l.Disable())
 	assert.False(t, l.IsEnabled())
 }
 
+func TestEnableDisableMultipleLocks(t *testing.T) {
+	var db = setupCleanDB(t)
+	rand.Seed(time.Now().UnixNano())
+
+	var (
+		componentName = "cmp"
+		componentID1  = strconv.FormatUint(rand.Uint64(), 10)
+		componentID2  = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID1        = strconv.FormatUint(rand.Uint64(), 10)
+		jobID2        = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var l1 = New(db, componentName, componentID1, jobName, jobID1, 1*time.Hour)
+	var l2 = New(db, componentName, componentID2, jobName, jobID2, 1*time.Hour)
+
+	// Initially enabled.
+	assert.True(t, l1.IsEnabled())
+	assert.True(t, l2.IsEnabled())
+
+	// Component 1 disable lock.
+	assert.Nil(t, l1.Disable())
+	assert.False(t, l1.IsEnabled())
+	assert.False(t, l2.IsEnabled())
+
+	// Component 2 disable lock.
+	assert.Nil(t, l2.Disable())
+	assert.False(t, l1.IsEnabled())
+	assert.False(t, l2.IsEnabled())
+
+	// Component 1 enable lock.
+	assert.Nil(t, l1.Enable())
+	assert.True(t, l1.IsEnabled())
+	assert.True(t, l2.IsEnabled())
+}
+
 func TestLock(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
+
 	// Initially unlocked
-	var lockTbl, err = l.getLock()
+	var tbl, err = l.getLock()
 	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
+	assert.Equal(t, componentName, tbl.componentName)
+	assert.Equal(t, componentID, tbl.componentID)
+	assert.Equal(t, jobName, tbl.jobName)
+	assert.Equal(t, jobID, tbl.jobID)
+	assert.True(t, tbl.enabled)
+	assert.Equal(t, "UNLOCKED", tbl.status)
+	assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
 	assert.False(t, l.OwningLock())
 
+	var oldlockTime = tbl.lockTime
 	// Several calls to Lock have the same result.
-	tbl.status = "LOCKED"
-	assert.Nil(t, l.Lock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.True(t, l.OwningLock())
+	for i := 0; i < 10; i++ {
+		assert.Nil(t, l.Lock())
+		assert.True(t, l.OwningLock())
+		var tbl, err = l.getLock()
+		assert.Nil(t, err)
+		assert.Equal(t, componentName, tbl.componentName)
+		assert.Equal(t, componentID, tbl.componentID)
+		assert.Equal(t, jobName, tbl.jobName)
+		assert.Equal(t, jobID, tbl.jobID)
+		assert.True(t, tbl.enabled)
+		assert.Equal(t, "LOCKED", tbl.status)
+		assert.True(t, tbl.lockTime.After(oldlockTime))
+	}
 
-	assert.Nil(t, l.Lock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.True(t, l.OwningLock())
-
-	assert.Nil(t, l.Lock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.True(t, l.OwningLock())
-
-	// Unlock/Lock
+	// Unlock/Lock.
 	assert.Nil(t, l.Unlock())
 	assert.False(t, l.OwningLock())
 	assert.Nil(t, l.Lock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
 	assert.True(t, l.OwningLock())
-}
-
-func TestLockDisabled(t *testing.T) {
-	var db = setupCleanDB(t)
-	rand.Seed(time.Now().UnixNano())
-
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-	assert.Nil(t, l.Disable())
-	assert.IsType(t, &Disabled{}, l.Lock())
-}
-
-func TestMultipleLock(t *testing.T) {
-	var db = setupCleanDB(t)
-	rand.Seed(time.Now().UnixNano())
-
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-	var tbl2 = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
-	var l2 = New(db, tbl2.componentName, tbl2.componentID, tbl2.jobName, tbl2.jobID)
-
-	// l has lock
-	assert.Nil(t, l.Lock())
-	assert.True(t, l.OwningLock())
-	assert.IsType(t, &Unauthorised{}, l2.Lock())
-	assert.False(t, l2.OwningLock())
-	assert.True(t, l.OwningLock())
-	assert.IsType(t, &Unauthorised{}, l2.Unlock())
-
-	// l2 has lock
-	assert.Nil(t, l.Unlock())
-	assert.False(t, l.OwningLock())
-	assert.Nil(t, l2.Lock())
-	assert.True(t, l2.OwningLock())
-	assert.False(t, l.OwningLock())
 }
 
 func TestUnlock(t *testing.T) {
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
-	var tbl = &table{
-		componentName: "cmp",
-		componentID:   strconv.FormatUint(rand.Uint64(), 10),
-		jobName:       "job",
-		jobID:         strconv.FormatUint(rand.Uint64(), 10),
-		enabled:       true,
-		status:        "UNLOCKED",
-	}
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	var l = New(db, tbl.componentName, tbl.componentID, tbl.jobName, tbl.jobID)
-	// Initially unlocked
-	var lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.False(t, l.OwningLock())
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
 
 	// Several calls to Unlock have the same result.
-	assert.Nil(t, l.Unlock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.False(t, l.OwningLock())
+	for i := 0; i < 10; i++ {
+		assert.Nil(t, l.Unlock())
+		assert.False(t, l.OwningLock())
+		var tbl, err = l.getLock()
+		assert.Nil(t, err)
+		assert.Equal(t, componentName, tbl.componentName)
+		assert.Equal(t, componentID, tbl.componentID)
+		assert.Equal(t, jobName, tbl.jobName)
+		assert.Equal(t, jobID, tbl.jobID)
+		assert.True(t, tbl.enabled)
+		assert.Equal(t, "UNLOCKED", tbl.status)
+	}
 
-	assert.Nil(t, l.Unlock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.False(t, l.OwningLock())
-
-	assert.Nil(t, l.Unlock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
-	assert.False(t, l.OwningLock())
-
-	// Lock/Unlock
+	// Lock/Unlock.
 	assert.Nil(t, l.Lock())
 	assert.True(t, l.OwningLock())
 	assert.Nil(t, l.Unlock())
-	lockTbl, err = l.getLock()
-	assert.Nil(t, err)
-	assert.Equal(t, tbl, lockTbl)
 	assert.False(t, l.OwningLock())
+}
+
+func TestLockWhenDisabled(t *testing.T) {
+	var db = setupCleanDB(t)
+	rand.Seed(time.Now().UnixNano())
+
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var l = New(db, componentName, componentID, jobName, jobID, 1*time.Hour)
+	assert.Nil(t, l.Disable())
+	var err = l.Lock()
+	assert.IsType(t, &Disabled{}, err)
+}
+
+func TestLockWithMultipleComponents(t *testing.T) {
+	var db = setupCleanDB(t)
+	rand.Seed(time.Now().UnixNano())
+
+	var (
+		componentName = "cmp"
+		componentID1  = strconv.FormatUint(rand.Uint64(), 10)
+		componentID2  = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID1        = strconv.FormatUint(rand.Uint64(), 10)
+		jobID2        = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var l1 = New(db, componentName, componentID1, jobName, jobID1, 1*time.Hour)
+	var l2 = New(db, componentName, componentID2, jobName, jobID2, 1*time.Hour)
+
+	// l1 locks.
+	assert.Nil(t, l1.Lock())
+	assert.True(t, l1.OwningLock())
+	assert.False(t, l2.OwningLock())
+	assert.IsType(t, &Unauthorised{}, l2.Lock())
+	assert.IsType(t, &Unauthorised{}, l2.Unlock())
+
+	// l1 unlocks.
+	assert.Nil(t, l1.Unlock())
+	assert.False(t, l1.OwningLock())
+	assert.False(t, l2.OwningLock())
+
+	// l2 locks.
+	assert.Nil(t, l2.Lock())
+	assert.True(t, l2.OwningLock())
+	assert.False(t, l1.OwningLock())
+	assert.IsType(t, &Unauthorised{}, l1.Lock())
+	assert.IsType(t, &Unauthorised{}, l1.Unlock())
+	assert.Nil(t, l2.Unlock())
+}
+
+func TestForceLock(t *testing.T) {
+	var db = setupCleanDB(t)
+	rand.Seed(time.Now().UnixNano())
+
+	var (
+		componentName = "cmp"
+		componentID1  = strconv.FormatUint(rand.Uint64(), 10)
+		componentID2  = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID1        = strconv.FormatUint(rand.Uint64(), 10)
+		jobID2        = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var maxDuration = 500 * time.Millisecond
+	var l1 = New(db, componentName, componentID1, jobName, jobID1, maxDuration)
+	var l2 = New(db, componentName, componentID2, jobName, jobID2, maxDuration)
+
+	// L1 has lock.
+	assert.Nil(t, l1.Lock())
+	assert.IsType(t, &Unauthorised{}, l2.Lock())
+	assert.True(t, l1.OwningLock())
+	assert.False(t, l2.OwningLock())
+
+	// Wait till the job max duration exceed.
+	time.Sleep(maxDuration)
+
+	// L1 still has the lock, but because the maxDuration exceeded, L2 can take the lock by force.
+	assert.True(t, l1.OwningLock())
+	assert.False(t, l2.OwningLock())
+	assert.Nil(t, l2.Lock())
+	assert.False(t, l1.OwningLock())
+	assert.True(t, l2.OwningLock())
 }
 
 func setupCleanDB(t *testing.T) *sql.DB {

@@ -1,8 +1,10 @@
+// package lock 
 package lock
 
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -15,6 +17,7 @@ const (
 		job_id STRING,
 		enabled BOOL,
 		status STRING,
+		lock_time TIMESTAMP,
 		PRIMARY KEY (component_name, job_name))`
 	insertLockStmt = `INSERT INTO locks (
 		component_name,
@@ -22,13 +25,21 @@ const (
 		job_name,
 		job_id,
 		enabled,
-		status)
-		VALUES ($1, $2, $3, $4, $5, $6)`
+		status,
+		lock_time)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 	lockStmt = `UPDATE locks SET (
 		component_id,
 		job_id,
-		status) = ($1, $2, 'LOCKED') 
-		WHERE (component_name = $3 AND job_name = $4 AND enabled = true AND status = 'UNLOCKED')`
+		status,
+		lock_time) = ($1, $2, 'LOCKED', $3) 
+		WHERE (component_name = $4 AND job_name = $5 AND enabled = true AND status = 'UNLOCKED')`
+	forceLockStmt = `UPDATE locks SET (
+		component_id,
+		job_id,
+		status,
+		lock_time) = ($1, $2, 'LOCKED', $3)
+		WHERE (component_name = $4 AND job_name = $5 AND enabled = true)`
 	unlockStmt = `UPDATE locks SET (status) = ('UNLOCKED') WHERE (
 		component_name = $1 AND 
 		component_id = $2 AND 
@@ -41,11 +52,12 @@ const (
 
 // Lock is the locking module.
 type Lock struct {
-	db            DB
-	componentName string
-	componentID   string
-	jobName       string
-	jobID         string
+	db             DB
+	componentName  string
+	componentID    string
+	jobName        string
+	jobID          string
+	jobMaxDuration time.Duration
 }
 
 // DB is the interface of the DB.
@@ -61,21 +73,23 @@ type table struct {
 	jobID         string
 	enabled       bool
 	status        string
+	lockTime      time.Time
 }
 
 // New returns a new locking module.
-func New(db DB, componentName, componentID, jobName, jobID string) *Lock {
+func New(db DB, componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) *Lock {
 	var l = &Lock{
-		db:            db,
-		componentName: componentName,
-		componentID:   componentID,
-		jobName:       jobName,
-		jobID:         jobID,
+		db:             db,
+		componentName:  componentName,
+		componentID:    componentID,
+		jobName:        jobName,
+		jobID:          jobID,
+		jobMaxDuration: jobMaxDuration,
 	}
 
 	// Init DB: create table and lock entry for job.
 	db.Exec(createLocksTblStmt)
-	db.Exec(insertLockStmt, l.componentName, l.componentID, l.jobName, l.jobID, true, "UNLOCKED")
+	db.Exec(insertLockStmt, l.componentName, l.componentID, l.jobName, l.jobID, true, "UNLOCKED", time.Unix(0, 0).UTC())
 
 	return l
 }
@@ -114,8 +128,20 @@ func (l *Lock) Lock() error {
 	if !l.IsEnabled() {
 		return &Disabled{componentName: l.componentName, jobName: l.jobName}
 	}
+	// If the job exceed the job maxduration, we can force a lock. It means that even if another component has the lock,
+	// we can steal the lock from him.
+	var stmt string
+	{
+		var lck, err = l.getLock()
+		if err == nil && time.Now().After(lck.lockTime.Add(l.jobMaxDuration)) {
+			stmt = forceLockStmt
+		} else {
+			stmt = lockStmt
+		}
+	}
+
 	// To obtain distributed lock, update field in cockroach DB.
-	l.db.Exec(lockStmt, l.componentID, l.jobID, l.componentName, l.jobName)
+	l.db.Exec(stmt, l.componentID, l.jobID, time.Now().UTC(), l.componentName, l.jobName)
 
 	var lck, err = l.getLock()
 	switch {
@@ -152,12 +178,26 @@ func (l *Lock) Unlock() error {
 // getLock returns the whole lock database entry for the current Job.
 func (l *Lock) getLock() (*table, error) {
 	var row = l.db.QueryRow(selectLockStmt, l.componentName, l.jobName)
-	var t = table{}
-	var err = row.Scan(&t.componentName, &t.componentID, &t.jobName, &t.jobID, &t.enabled, &t.status)
+	var (
+		cName, cID, jName, jID, status string
+		enabled                        bool
+		lockTime                       time.Time
+	)
+
+	var err = row.Scan(&cName, &cID, &jName, &jID, &enabled, &status, &lockTime)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get lock from DB")
 	}
-	return &t, nil
+
+	return &table{
+		componentName: cName,
+		componentID:   cID,
+		jobName:       jName,
+		jobID:         jID,
+		enabled:       enabled,
+		status:        status,
+		lockTime:      lockTime.UTC(),
+	}, nil
 }
 
 // OwningLock returns true if the component is owning the lock, false otherwise.
