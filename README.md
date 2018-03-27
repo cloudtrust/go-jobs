@@ -146,6 +146,7 @@ job_name | STRING | name of the job
 job_id | STRING | job ID, obtained from flaki when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
 enabled | BOOL | use to disable jobs, for example during an upgrade we may want to disable some jobs.
 status | STRING | status of the job ('RUNNING', 'IDLE')
+lock_time | TIMESTAMP | when the lock was acquired
 
 ### Status
 
@@ -156,10 +157,20 @@ component_id | STRING | component ID, obtained from flaki at startup. This ID ca
 job_name | STRING | name of the job
 job_id | STRING | job ID, obtained from flaki when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
 start_time | TIMESTAMP | when the job started
-step_infos | STRING | information on the current execution, updated regularly.
 last_update | TIMESTAMP | when the step_infos field was last updated. If this field was not updated for a long time, we can guess that the job crashed.
+step_infos | STRING | information on the current execution, updated regularly.
 message | STRING | message is updated with information about the job execution when the job finishes.
-last_execution | TIMESTAMP | when the job was last executed
-last_execution_success | TIMESTAMP | when the job was last executed successfully
-last_execution_duration | INTERVAL | the duration of the last job execution
-last_execution_status | STRING | the status of the last job execution ('SUCCESS', 'FAILED')
+| |
+last_completed_component_id | STRING | id of the component that last successfully completed the job
+last_completed_job_id | STRING | id of the last successfully completed job
+last_completed_start_time | TIMESTAMP | when the last successfully completed job started
+last_completed_end_time | TIMESTAMP | when the last successfully completed job ended
+last_completed_step_infos | STRING | steps informations for the last successfull job
+last_completed_message | STRING | information about the last successfull job
+| |
+last_failed_component_id | STRING |  id of the component that last unsuccessfully completed the job
+last_failed_job_id | STRING | id of the last unsuccessfully completed job
+last_failed_start_time | TIMESTAMP | when the last unsuccessfully completed job started
+last_failed_end_time | TIMESTAMP | when the last unsuccessfully completed job ended
+last_failed_step_infos | STRING | steps informations for the last unsuccessfull job
+last_failed_message | STRING | information about the last unsuccessfull job
