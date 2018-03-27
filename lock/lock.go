@@ -24,7 +24,7 @@ const (
 		job_id STRING,
 		enabled BOOL,
 		status STRING,
-		lock_time TIMESTAMP,
+		lock_time TIMESTAMPTZ,
 		PRIMARY KEY (component_name, job_name))`
 	insertLockStmt = `INSERT INTO locks (
 		component_name,
@@ -96,7 +96,7 @@ func New(db DB, componentName, componentID, jobName, jobID string, jobMaxDuratio
 
 	// Init DB: create table and lock entry for job.
 	db.Exec(createLocksTblStmt)
-	db.Exec(insertLockStmt, l.componentName, l.componentID, l.jobName, l.jobID, true, "UNLOCKED", time.Unix(0, 0).UTC())
+	db.Exec(insertLockStmt, l.componentName, l.componentID, l.jobName, l.jobID, true, "UNLOCKED", time.Time{})
 
 	return l
 }

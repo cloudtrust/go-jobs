@@ -28,9 +28,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestNewLock(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
+	// if !*integration {
+	// 	t.Skip()
+	// }
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -50,7 +50,7 @@ func TestNewLock(t *testing.T) {
 	assert.Equal(t, jobID, tbl.jobID)
 	assert.True(t, tbl.enabled)
 	assert.Equal(t, "UNLOCKED", tbl.status)
-	assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
+	assert.Equal(t, tbl.lockTime, time.Time{})
 }
 
 func TestEnable(t *testing.T) {
@@ -87,7 +87,7 @@ func TestEnable(t *testing.T) {
 		assert.Equal(t, jobID, tbl.jobID)
 		assert.True(t, tbl.enabled)
 		assert.Equal(t, "UNLOCKED", tbl.status)
-		assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
+		assert.Equal(t, tbl.lockTime, time.Time{})
 	}
 
 	// Disable/enable
@@ -125,7 +125,7 @@ func TestDisable(t *testing.T) {
 		assert.Equal(t, jobID, tbl.jobID)
 		assert.False(t, tbl.enabled)
 		assert.Equal(t, "UNLOCKED", tbl.status)
-		assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
+		assert.Equal(t, tbl.lockTime, time.Time{})
 	}
 
 	// Enable/Disable.
@@ -199,7 +199,7 @@ func TestLock(t *testing.T) {
 	assert.Equal(t, jobID, tbl.jobID)
 	assert.True(t, tbl.enabled)
 	assert.Equal(t, "UNLOCKED", tbl.status)
-	assert.Equal(t, tbl.lockTime, time.Unix(0, 0).UTC())
+	assert.Equal(t, tbl.lockTime, time.Time{})
 	assert.False(t, l.OwningLock())
 
 	var oldlockTime = tbl.lockTime
