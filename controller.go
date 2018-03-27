@@ -1,34 +1,21 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	job_actor "github.com/cloudtrust/go-jobs/actor"
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/cloudtrust/go-jobs/lock"
 	"github.com/victorcoder/dkron/cron"
 )
 
-type LockMode int
-
-const (
-	// Local lock
-	Local LockMode = iota
-	// Lock distributed across instances via DB
-	Distributed
-)
-
-func (l LockMode) String() string {
-	var names = []string{"Local", "Distributed"}
-
-	if l < Local || l > Distributed {
-		panic("Unknown lock mode")
-	}
-
-	return names[l]
+// DB is the interface of the DB.
+type DB interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
 }
-
-type DB interface{}
 
 type IdGenerator interface {
 	NextId() string
@@ -42,7 +29,8 @@ type Controller struct {
 	idGenerator          IdGenerator
 	lockMode             LockMode
 	statusStorageEnabled bool
-	db                   DB
+	dbStatus             DB
+	dbLock               DB
 	jobDirectory         map[string]string
 }
 
@@ -72,7 +60,8 @@ func NewController(componentName string, idGenerator IdGenerator, options ...Con
 		idGenerator:          idGenerator,
 		lockMode:             Local,
 		statusStorageEnabled: false,
-		db:                   nil,
+		dbStatus:             nil,
+		dbLock:               nil,
 		jobDirectory:         make(map[string]string),
 	}
 
@@ -89,7 +78,7 @@ func NewController(componentName string, idGenerator IdGenerator, options ...Con
 
 func EnableDistrutedLock(db DB) ControllerOption {
 	return func(c *Controller) error {
-		c.db = db
+		c.dbLock = db
 		c.lockMode = Distributed
 		return nil
 	}
@@ -97,7 +86,7 @@ func EnableDistrutedLock(db DB) ControllerOption {
 
 func EnableStatusStorage(db DB) ControllerOption {
 	return func(c *Controller) error {
-		c.db = db
+		c.dbStatus = db
 		c.statusStorageEnabled = true
 		return nil
 	}
@@ -129,7 +118,7 @@ func (c *Controller) Register(j *job.Job) {
 	var jobID = c.idGenerator.NextId()
 	c.jobDirectory[j.Name()] = jobID
 
-	c.masterActor.Tell(&job_actor.RegisterJob{Label: jobID, Job: j, Statistics: nil, Lock: nil})
+	c.masterActor.Tell(&job_actor.RegisterJob{JobID: jobID, Job: j})
 }
 
 // AddTask schedule a run for the job.
@@ -172,7 +161,15 @@ func (c *Controller) DisableAll() error {
 	if ok, err := c.assertDistirbutedLock(); !ok {
 		return err
 	}
-	//TODO
+
+	for jobName, jobID := range c.jobDirectory {
+		var err = lock.New(c.db, c.componentName, c.componentID, jobName, jobID).Disable()
+
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -181,7 +178,15 @@ func (c *Controller) EnableAll() error {
 	if ok, err := c.assertDistirbutedLock(); !ok {
 		return err
 	}
-	//TODO
+
+	for jobName, jobID := range c.jobDirectory {
+		var err = lock.New(c.db, c.componentName, c.componentID, jobName, jobID).Enable()
+
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -191,12 +196,13 @@ func (c *Controller) Disable(jobName string) error {
 		return err
 	}
 
-	if id, ok := c.jobDirectory[jobName]; !ok {
+	jobID, ok := c.jobDirectory[jobName]
+
+	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
-	//TODO
-	return nil
+	return lock.New(c.db, c.componentName, c.componentID, jobName, jobID).Disable()
 }
 
 // Enable execution for the specified job.
@@ -205,12 +211,13 @@ func (c *Controller) Enable(jobName string) error {
 		return err
 	}
 
-	if id, ok := c.jobDirectory[jobName]; !ok {
+	jobID, ok := c.jobDirectory[jobName]
+
+	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
-	//TODO
-	return nil
+	return lock.New(c.db, c.componentName, c.componentID, jobName, jobID).Enable()
 }
 
 func (c *Controller) assertDistirbutedLock() (bool, error) {

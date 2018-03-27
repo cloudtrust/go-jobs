@@ -1,7 +1,6 @@
 package actor
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
@@ -16,8 +15,8 @@ const (
 
 type WorkerActor struct {
 	job                *job.Job
-	lock               Lock
-	statistics         Statistics
+	lockManager        LockManager
+	statusManager      StatusManager
 	runnerPropsBuilder func(job *job.Job) *actor.Props
 	suicideTimeout     time.Duration
 	currentTimeoutType int
@@ -41,28 +40,28 @@ type RunnerStopped struct{}
 
 type RunnerStarted struct{}
 
-type Lock interface {
+type LockManager interface {
 	Lock() error
 	Unlock() error
 }
 
-type Statistics interface {
+type StatusManager interface {
 	Start() error
 	Update(stepInfos map[string]string) error
-	Finish(stepInfos, message map[string]string)
-	Cancel(stepInfos, message map[string]string) error
+	Complete(stepInfos, message map[string]string) error
+	Fail(stepInfos, message map[string]string) error
 }
 
-func BuildWorkerActorProps(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props {
-	return actor.FromProducer(newWorkerActor(j, l, s, options...)).WithSupervisor(workerActorSupervisorStrategy())
+func BuildWorkerActorProps(j *job.Job, lm LockManager, sm StatusManager, options ...WorkerOption) *actor.Props {
+	return actor.FromProducer(newWorkerActor(j, lm, sm, options...)).WithSupervisor(workerActorSupervisorStrategy())
 }
 
-func newWorkerActor(j *job.Job, l Lock, s Statistics, options ...WorkerOption) func() actor.Actor {
+func newWorkerActor(j *job.Job, lm LockManager, sm StatusManager, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
 		var worker = &WorkerActor{
 			job:                j,
-			lock:               l,
-			statistics:         s,
+			lockManager:        lm,
+			statusManager:      sm,
 			suicideTimeout:     0,
 			runnerPropsBuilder: BuildRunnerActorProps,
 		}
@@ -90,11 +89,8 @@ func runnerPropsBuilder(p func(job *job.Job) *actor.Props) WorkerOption {
 
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
-	case *actor.Started:
-		fmt.Println("StartWorker")
-		fmt.Println(state.job.Name())
 	case *Execute:
-		if state.lock.Lock() != nil {
+		if state.lockManager.Lock() != nil {
 			//TODO log lock not succeeded
 			return
 		}
@@ -103,29 +99,36 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		// TODO normal execution is optional, set it only iff value provided. same for exectimeout and/or suicide timeout
 		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
+
 		// Spawn Runner
-		// TODO with specific worker supervisor ?
 		props := state.runnerPropsBuilder(state.job)
 		context.Spawn(props)
 
-		state.statistics.Start()
-	case *Status:
-		if message.status == Completed {
-			state.statistics.Finish(message.infos, message.message)
-		} else {
-			state.statistics.Cancel(message.infos, message.message)
+		if state.statusManager != nil {
+			state.statusManager.Start()
 		}
 
+	case *Status:
+		if state.statusManager != nil {
+			if message.status == Completed {
+				state.statusManager.Complete(message.infos, message.message)
+			} else {
+				state.statusManager.Fail(message.infos, message.message)
+			}
+		}
 		// unlock will be auto called by stop of runner
 
 	case *HeartBeat:
 		state.currentTimeoutType = normalExecution
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 		var s = message.StepInfos
-		state.statistics.Update(s)
+
+		if state.statusManager != nil {
+			state.statusManager.Update(s)
+		}
 
 	case *RunnerStopped:
-		state.lock.Unlock()
+		state.lockManager.Unlock()
 
 	case *actor.ReceiveTimeout:
 		switch state.currentTimeoutType {

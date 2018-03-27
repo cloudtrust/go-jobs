@@ -1,41 +1,71 @@
 package actor
 
 import (
+	"database/sql"
+
+	"github.com/cloudtrust/go-jobs/status"
+
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/cloudtrust/go-jobs/lock"
 )
 
 // Root actor
 type MasterActor struct {
-	workers            map[string]*actor.PID
-	workerPropsBuilder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props
+	componentName        string
+	componentID          string
+	idGenerator          IdGenerator
+	lockMode             lock.LockMode
+	statusStorageEnabled bool
+	dbStatus             DB
+	dbLock               DB
+	workers              map[string]*actor.PID
+	workerPropsBuilder   func(j *job.Job, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
 }
 
-type MasterOption func(w *MasterActor)
+type MasterOption func(m *MasterActor)
 
 // Message triggered by API to MasterActor to register a new job.
 type RegisterJob struct {
-	// identifier of the job
-	Label      string
-	Job        *job.Job
-	Statistics Statistics
-	Lock       Lock
+	JobID string
+	Job   *job.Job
 }
 
 // Message triggerred by Cron to MasterActor to launch job.
 type StartJob struct {
-	Label string
+	JobID string
 }
 
-func BuildMasterActorProps(options ...MasterOption) *actor.Props {
-	return actor.FromProducer(newMasterActor(options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+// DB is the interface of the DB.
+type IdGenerator interface {
+	NextId() string
 }
 
-func newMasterActor(options ...MasterOption) func() actor.Actor {
+// DB is the interface of the DB.
+type DB interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+func BuildMasterActorProps(componentName string, componentID string, idGenerator IdGenerator,
+	lockMode lock.LockMode, statusStorageEnabled bool, dbStatus DB, dbLock DB, options ...MasterOption) *actor.Props {
+	return actor.FromProducer(newMasterActor(componentName, componentID, idGenerator,
+		lockMode, statusStorageEnabled, dbStatus, dbLock, options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+}
+
+func newMasterActor(componentName string, componentID string, idGenerator IdGenerator,
+	lockMode lock.LockMode, statusStorageEnabled bool, dbStatus DB, dbLock DB, options ...MasterOption) func() actor.Actor {
 	return func() actor.Actor {
 		var master = &MasterActor{
-			workers:            make(map[string]*actor.PID),
-			workerPropsBuilder: BuildWorkerActorProps,
+			componentName:        componentName,
+			componentID:          componentID,
+			idGenerator:          idGenerator,
+			lockMode:             lockMode,
+			statusStorageEnabled: statusStorageEnabled,
+			dbStatus:             dbStatus,
+			dbLock:               dbLock,
+			workers:              make(map[string]*actor.PID),
+			workerPropsBuilder:   BuildWorkerActorProps,
 		}
 
 		// Apply options to the job
@@ -50,15 +80,28 @@ func newMasterActor(options ...MasterOption) func() actor.Actor {
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = state.workerPropsBuilder(msg.Job, msg.Lock, msg.Statistics)
+		var l LockManager
+		var s StatusManager
+
+		if state.lockMode == lock.Distributed {
+			l = lock.New(state.dbLock, state.componentName, state.componentID, msg.Job.Name(), msg.JobID, 0)
+		} else {
+			l = lock.NewLocalLock()
+		}
+
+		if state.statusStorageEnabled {
+			s = status.New(state.dbStatus, state.componentName, state.componentID, msg.Job.Name(), msg.JobID)
+		}
+
+		var props = state.workerPropsBuilder(msg.Job, l, s)
 		var worker = context.Spawn(props)
-		state.workers[msg.Label] = worker
+		state.workers[msg.JobID] = worker
 	case *StartJob:
-		state.workers[msg.Label].Tell(&Execute{})
+		state.workers[msg.JobID].Tell(&Execute{})
 	}
 }
 
-func workerPropsBuilder(builder func(j *job.Job, l Lock, s Statistics, options ...WorkerOption) *actor.Props) MasterOption {
+func workerPropsBuilder(builder func(j *job.Job, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
 	return func(m *MasterActor) {
 		m.workerPropsBuilder = builder
 	}

@@ -57,6 +57,25 @@ const (
 	selectLockStmt = `SELECT * FROM locks WHERE (component_name = $1 AND job_name = $2)`
 )
 
+type LockMode int
+
+const (
+	// Local lock
+	Local LockMode = iota
+	// Lock distributed across instances via DB
+	Distributed
+)
+
+func (l LockMode) String() string {
+	var names = []string{"Local", "Distributed"}
+
+	if l < Local || l > Distributed {
+		panic("Unknown lock mode")
+	}
+
+	return names[l]
+}
+
 // Lock is the locking module.
 type Lock struct {
 	db             DB
