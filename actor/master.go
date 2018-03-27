@@ -16,15 +16,15 @@ type MasterOption func(w *MasterActor)
 // Message triggered by API to MasterActor to register a new job.
 type RegisterJob struct {
 	// identifier of the job
-	label      string
-	job        *job.Job
-	statistics Statistics
-	lock       Lock
+	Label      string
+	Job        *job.Job
+	Statistics Statistics
+	Lock       Lock
 }
 
 // Message triggerred by Cron to MasterActor to launch job.
 type StartJob struct {
-	label string
+	Label string
 }
 
 func BuildMasterActorProps(options ...MasterOption) *actor.Props {
@@ -50,11 +50,11 @@ func newMasterActor(options ...MasterOption) func() actor.Actor {
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = state.workerPropsBuilder(msg.job, msg.lock, msg.statistics)
+		var props = state.workerPropsBuilder(msg.Job, msg.Lock, msg.Statistics)
 		var worker = context.Spawn(props)
-		state.workers[msg.label] = worker
+		state.workers[msg.Label] = worker
 	case *StartJob:
-		state.workers[msg.label].Tell(&Execute{})
+		state.workers[msg.Label].Tell(&Execute{})
 	}
 }
 
