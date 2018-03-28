@@ -1,5 +1,9 @@
 package lock
 
+import (
+	"fmt"
+)
+
 
 type LocalLock struct {
 	locked bool
@@ -12,6 +16,10 @@ func NewLocalLock() *LocalLock {
 }
 
 func (l *LocalLock) Lock() error {
+	if l.locked == true {
+		return fmt.Errorf("Already locked")
+	}
+	
 	l.locked = true
 	return nil
 }

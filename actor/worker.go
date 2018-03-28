@@ -116,6 +116,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 				state.statusManager.Fail(message.infos, message.message)
 			}
 		}
+		context.Children()[0].Stop()
 		// unlock will be auto called by stop of runner
 
 	case *HeartBeat:

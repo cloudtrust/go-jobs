@@ -8,7 +8,6 @@ import (
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/actor/mock"
 	"github.com/cloudtrust/go-jobs/job"
-	"github.com/cloudtrust/go-jobs/lock"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,19 +30,16 @@ func TestNominalCase(t *testing.T) {
 
 	var job, _ = job.NewJob("job", job.Steps(successfulStep))
 
-	var idGenerator = &DummyIdGenerator{}
-	var lockMode = lock.Local
-	var statusStorageEnabled = false
-	var dbStatus, dbLock DB
-
-	props := BuildMasterActorProps("componentName", "componentID", idGenerator, lockMode, statusStorageEnabled, dbStatus, dbLock, workerPropsBuilder(mockBuilderWorkerActorProps))
+	props := BuildMasterActorProps("componentName", "componentID", workerPropsBuilder(mockBuilderWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{JobID: "job", Job: job})
+	master.Tell(&RegisterJob{JobID: "job", Job: job, LockManager: mockLockManager, StatusManager: mockStatusManager})
 	master.Tell(&StartJob{JobID: "job"})
 
 	wg.Wait()
 	master.GracefulStop()
+
+	
 }
 
 // test handling of worker panic -> restart
@@ -68,15 +64,10 @@ func TestWorkerRestartWhenPanicOccurs(t *testing.T) {
 
 	var job, _ = job.NewJob("job", job.Steps(mockStep))
 
-	var idGenerator = &DummyIdGenerator{}
-	var lockMode = lock.Local
-	var statusStorageEnabled = false
-	var dbStatus, dbLock DB
-
-	props := BuildMasterActorProps("componentName", "componentID", idGenerator, lockMode, statusStorageEnabled, dbStatus, dbLock, workerPropsBuilder(mockBuilderFailingWorkerActorProps))
+	props := BuildMasterActorProps("componentName", "componentID", workerPropsBuilder(mockBuilderFailingWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{JobID: "job", Job: job})
+	master.Tell(&RegisterJob{JobID: "job", Job: job, LockManager: nil, StatusManager: nil})
 	master.Tell(&StartJob{JobID: "job"})
 
 	wg.Wait()
@@ -94,15 +85,6 @@ func TestAlwaysPanicDecider(t *testing.T) {
 //Note: Supervision and Guardian strategy for Master Actor is tested in worker_test.
 
 /* Utils */
-
-type DummyIdGenerator struct {
-	i int
-}
-
-func (g *DummyIdGenerator) NextId() string {
-	g.i = g.i + 1
-	return string(g.i)
-}
 
 /** Working Worker Actor **/
 type mockWorkerActor struct {
