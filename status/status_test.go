@@ -41,8 +41,9 @@ func TestNewStatus(t *testing.T) {
 		jobID         = strconv.FormatUint(rand.Uint64(), 10)
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Equal(t, componentName, tbl.componentName)
 	assert.Equal(t, componentID, tbl.componentID)
@@ -79,14 +80,15 @@ func TestStart(t *testing.T) {
 		jobID         = strconv.FormatUint(rand.Uint64(), 10)
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.startTime)
 
 	// Start.
-	assert.Nil(t, s.Start())
-	tbl, err = s.GetStatus()
+	assert.Nil(t, s.Start(componentName, jobName))
+	tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 
 	// start is modified.
@@ -127,14 +129,15 @@ func TestGetStartTime(t *testing.T) {
 		jobID         = strconv.FormatUint(rand.Uint64(), 10)
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.startTime)
 
 	// Start.
-	assert.Nil(t, s.Start())
-	tbl, err = s.GetStatus()
+	assert.Nil(t, s.Start(componentName, jobName))
+	tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.NotZero(t, tbl.startTime)
 }
@@ -153,15 +156,16 @@ func TestUpdate(t *testing.T) {
 		jobID         = strconv.FormatUint(rand.Uint64(), 10)
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastUpdate)
 	assert.Zero(t, tbl.stepInfos)
 
 	// Update.
-	assert.Nil(t, s.Update(map[string]string{"key": "val"}))
-	tbl, err = s.GetStatus()
+	assert.Nil(t, s.Update(componentName, jobName, map[string]string{"key": "val"}))
+	tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 
 	// lastUpdate and stepInfos are modified.
@@ -204,8 +208,9 @@ func TestComplete(t *testing.T) {
 		msg           = map[string]string{"key": "message"}
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastCompletedComponentID)
 	assert.Zero(t, tbl.lastCompletedJobID)
@@ -215,9 +220,9 @@ func TestComplete(t *testing.T) {
 	assert.Zero(t, tbl.lastCompletedMessage)
 
 	// Complete.
-	assert.Nil(t, s.Start())
-	assert.Nil(t, s.Complete(stepInfos, msg))
-	tbl, err = s.GetStatus()
+	assert.Nil(t, s.Start(componentName, jobName))
+	assert.Nil(t, s.Complete(componentName, componentID, jobName, jobID, stepInfos, msg))
+	tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 
 	// The fields lastCompleted[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.
@@ -260,8 +265,9 @@ func TestFail(t *testing.T) {
 		msg           = map[string]string{"key": "message"}
 	)
 
-	var s = New(db, componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus()
+	var s = New(db)
+	s.Register(componentName, componentID, jobName, jobID)
+	var tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastFailedComponentID)
 	assert.Zero(t, tbl.lastFailedJobID)
@@ -271,9 +277,9 @@ func TestFail(t *testing.T) {
 	assert.Zero(t, tbl.lastFailedMessage)
 
 	// Complete.
-	assert.Nil(t, s.Start())
-	assert.Nil(t, s.Fail(stepInfos, msg))
-	tbl, err = s.GetStatus()
+	assert.Nil(t, s.Start(componentName, jobName))
+	assert.Nil(t, s.Fail(componentName, componentID, jobName, jobID, stepInfos, msg))
+	tbl, err = s.GetStatus(componentName, jobName)
 	assert.Nil(t, err)
 
 	// The fields lastFailed[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.

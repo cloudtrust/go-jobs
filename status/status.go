@@ -60,11 +60,7 @@ const (
 
 // Status is the status module.
 type Status struct {
-	db            DB
-	componentName string
-	componentID   string
-	jobName       string
-	jobID         string
+	db DB
 }
 
 // DB is the interface of the DB.
@@ -97,32 +93,31 @@ type Table struct {
 }
 
 // New returns a new status module.
-func New(db DB, componentName, componentID, jobName, jobID string) *Status {
+func New(db DB) *Status {
 	var s = &Status{
-		db:            db,
-		componentName: componentName,
-		componentID:   componentID,
-		jobName:       jobName,
-		jobID:         jobID,
+		db: db,
 	}
 
 	// Init DB: create table and status entry for job.
 	db.Exec(createStatusTblStmt)
-	var t = time.Time{}
-	db.Exec(insertStatusStmt, s.componentName, s.componentID, s.jobName, s.jobID, t, t, "", "", "", t, t, "", "", "", "", t, t, "", "")
 
 	return s
 }
 
+func (s *Status) Register(componentName, componentID, jobName, jobID string) {
+	var t = time.Time{}
+	s.db.Exec(insertStatusStmt, componentName, componentID, jobName, jobID, t, t, "", "", "", t, t, "", "", "", "", t, t, "", "")
+}
+
 // Start update the job start time in the DB.
-func (s *Status) Start() error {
-	var _, err = s.db.Exec(startStmt, time.Now().UTC(), s.componentName, s.jobName)
+func (s *Status) Start(componentName, jobName string) error {
+	var _, err = s.db.Exec(startStmt, time.Now().UTC(), componentName, jobName)
 	return err
 }
 
 // GetStatus returns the whole status database entry for the current Job.
-func (s *Status) GetStatus() (*Table, error) {
-	var row = s.db.QueryRow(selectStatusStmt, s.componentName, s.jobName)
+func (s *Status) GetStatus(componentName, jobName string) (*Table, error) {
+	var row = s.db.QueryRow(selectStatusStmt, componentName, jobName)
 	var (
 		cName, cID, jName, jID, stepInfos                                                           string
 		lastCompletedComponentID, lastCompletedJobID, lastCompletedStepInfos, lastCompletedMessage  string
@@ -161,8 +156,8 @@ func (s *Status) GetStatus() (*Table, error) {
 }
 
 // GetStartTime reads in DB and returns the time at which the job started.
-func (s *Status) GetStartTime() (time.Time, error) {
-	var t, err = s.GetStatus()
+func (s *Status) GetStartTime(componentName, jobName string) (time.Time, error) {
+	var t, err = s.GetStatus(componentName, jobName)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -170,7 +165,7 @@ func (s *Status) GetStartTime() (time.Time, error) {
 }
 
 // Update updates the job status.
-func (s *Status) Update(stepInfos map[string]string) error {
+func (s *Status) Update(componentName, jobName string, stepInfos map[string]string) error {
 	var infos []byte
 	{
 		var err error
@@ -180,16 +175,16 @@ func (s *Status) Update(stepInfos map[string]string) error {
 		}
 	}
 
-	var _, err = s.db.Exec(updateStatusStmt, time.Now().UTC(), string(infos), s.componentName, s.jobName)
+	var _, err = s.db.Exec(updateStatusStmt, time.Now().UTC(), string(infos), componentName, jobName)
 	if err != nil {
-		return errors.Wrapf(err, "update failed, component '%s' could not update status '%s'", s.componentName, s.jobName)
+		return errors.Wrapf(err, "update failed, component '%s' could not update status '%s'", componentName, jobName)
 	}
 
 	return nil
 }
 
 // Complete update the job infos when the job finishes without errors.
-func (s *Status) Complete(stepInfos, message map[string]string) error {
+func (s *Status) Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
 	var infos []byte
 	{
 		var err error
@@ -208,15 +203,15 @@ func (s *Status) Complete(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var _, err = s.db.Exec(completeStmt, s.componentID, s.jobID, time.Now().UTC(), string(infos), string(msg), s.componentName, s.jobName)
+	var _, err = s.db.Exec(completeStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
 	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
+		return errors.Wrapf(err, "component '%s' could not update status '%s'", componentName, jobName)
 	}
 	return nil
 }
 
 // Fail update the job infos when the job finishes with errors.
-func (s *Status) Fail(stepInfos, message map[string]string) error {
+func (s *Status) Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
 	var infos []byte
 	{
 		var err error
@@ -235,9 +230,9 @@ func (s *Status) Fail(stepInfos, message map[string]string) error {
 		}
 	}
 
-	var _, err = s.db.Exec(failStmt, s.componentID, s.jobID, time.Now().UTC(), string(infos), string(msg), s.componentName, s.jobName)
+	var _, err = s.db.Exec(failStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
 	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not update status '%s'", s.componentName, s.jobName)
+		return errors.Wrapf(err, "component '%s' could not update status '%s'", componentName, jobName)
 	}
 
 	return nil
