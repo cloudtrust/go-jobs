@@ -138,6 +138,35 @@ No state
 
 ## Cockroach DB reservation api
 
+With the reservation API, we can ensure that a job is executed only once at a time. Let's imagine that there is 3 instances of "keycloak-bridge" and that we want to exectute a backup of the keycloak configuration. We want that only one instance of the bridge executes the backup job.
+
+Lock API:
+Each lock has two states that can be represented by the booleans lock and enable. The former is the lock status (locked or unlocked) and the latter is true if the lock is enable, false otherwise. When a lock is disabled the components won't be able to acquire it even it is unlocked. We need this to disable jobs on demand, for example when we want to do an upgrade we don't want parasitic jobs to be executed concurrently. In that case we can simply disable those jobs.
+
+method | description
+------ | -----------
+Lock | Each job starts with a reservation phase, where the component try to acquire the lock using this method. Only one will acquire the lock and is going to the job execution phase. The others aborts.
+Unlock | Releases the lock
+OwningLock() | Return true if we are owning the lock, false otherwise
+Enable() | Enable the lock. If the lock is disabled, the Lock method will never acquire the Lock.
+Disable() | Disable the lock. Here we disable the possibility to acquire the lock, not to confund with unlock.
+IsEnabled() | Return true if the lock is enabled, false otherwise.
+
+```go
+func New(db DB, componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) *Lock {
+    ...
+}
+
+type Lock interface {
+    Lock() error
+    Unlock() error
+    OwningLock() bool
+    Enable() error
+    Disable() error
+    IsEnabled() bool
+}
+```
+
 name | type | description
 --- | ----------- | -------------
 component_name | STRING | name of the component (e.g. 'keycloak_bridge')
@@ -150,6 +179,32 @@ lock_time | TIMESTAMP | when the lock was acquired
 
 ### Status
 
+method | description
+------ | -----------
+Start | Updates the job's start time in the DB.
+GetStartTime() | Get the job's start time
+GetStatus() | Return the whole DB entry for the current job.
+Update | Updates the job status, with infos about the steps.
+Complete | Updates the last_completed_* columns in the DB. It happens when a job is successfull
+Fail | Updates the last_failed_* columns in the DB. It happens when a job failed
+
+```go
+func New(db DB, componentName, componentID, jobName, jobID string) *Status {
+    ...
+}
+
+type Status interface {
+    Start() error
+    GetStatus() (*Table, error)
+    GetStartTime() (time.Time, error)
+    Update(stepInfos map[string]string) error
+    Complete(stepInfos, message map[string]string) error
+    Fail(stepInfos, message map[string]string) error
+}
+```
+
+The Start method update the start_time in the DB, 
+GetStatus
 name | type | description
 ---- | ----------- | -------------
 component_name | STRING | name of the component (e.g. 'keycloak_bridge')
