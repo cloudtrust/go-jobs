@@ -15,6 +15,7 @@ import (
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/actor/mock"
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/go-kit/kit/log"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
@@ -54,7 +55,7 @@ func TestWorkerNominalCase(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -96,7 +97,7 @@ func TestAlreadyLocked(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -142,7 +143,7 @@ func TestFailure(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewFailingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -181,7 +182,7 @@ func TestExecutionTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewSlowRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -240,7 +241,7 @@ func TestSuicideTimeout(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -297,7 +298,7 @@ func TestRunnerRestartWhenPanicOccurs(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager)
+			props := BuildWorkerActorProps(componentName, componentID, log.NewNopLogger(), job, dummyIDGenerator, mockLockManager, mockStatusManager)
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -320,7 +321,7 @@ type mockWorkingRunnerActor struct {
 	job   *job.Job
 }
 
-func mockNewWorkingRunnerActorBuilder(jobID string, j *job.Job) *actor.Props {
+func mockNewWorkingRunnerActorBuilder(logger Logger, jobID string, j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockWorkingRunnerActor{jobID: jobID, job: j}
 	})
@@ -345,7 +346,7 @@ type mockFailingRunnerActor struct {
 	job   *job.Job
 }
 
-func mockNewFailingRunnerActorBuilder(jobID string, j *job.Job) *actor.Props {
+func mockNewFailingRunnerActorBuilder(logger Logger, jobID string, j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockFailingRunnerActor{jobID: jobID, job: j}
 	})
@@ -374,7 +375,7 @@ type mockSlowRunnerActor struct {
 	job   *job.Job
 }
 
-func mockNewSlowRunnerActorBuilder(jobID string, j *job.Job) *actor.Props {
+func mockNewSlowRunnerActorBuilder(logger Logger, jobID string, j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockSlowRunnerActor{jobID: jobID, job: j}
 	})
@@ -405,7 +406,7 @@ type mockInfiniteLoopRunnerActor struct {
 	job   *job.Job
 }
 
-func mockNewInfiniteLoopRunnerActorBuilder(jobID string, j *job.Job) *actor.Props {
+func mockNewInfiniteLoopRunnerActorBuilder(logger Logger, jobID string, j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockInfiniteLoopRunnerActor{jobID: jobID, job: j}
 	})

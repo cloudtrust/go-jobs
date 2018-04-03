@@ -1,4 +1,4 @@
-package main
+package controller
 
 import (
 	"context"
@@ -101,7 +101,7 @@ func TestStatusManagerOption(t *testing.T) {
 func TestLockError(t *testing.T) {
 	//This test is mainly for coverage
 
-	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &FailLockManager{})
+	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &FailLockManager{}, LogWith(&MockLogger{}))
 
 	assert.Nil(t, err)
 
@@ -199,5 +199,13 @@ func (s *DummyStatusManager) Complete(componentName, componentID, jobName, jobID
 
 func (s *DummyStatusManager) Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
 	s.FailCalled = true
+	return nil
+}
+
+// Logger
+
+type MockLogger struct{}
+
+func (l *MockLogger) Log(...interface{}) error {
 	return nil
 }

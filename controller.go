@@ -1,4 +1,4 @@
-package main
+package controller
 
 import (
 	"database/sql"
@@ -8,6 +8,8 @@ import (
 	"github.com/AsynkronIT/protoactor-go/actor"
 	job_actor "github.com/cloudtrust/go-jobs/actor"
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/cloudtrust/go-jobs/status"
+	"github.com/go-kit/kit/log"
 	"github.com/victorcoder/dkron/cron"
 )
 
@@ -38,6 +40,12 @@ type IDGenerator interface {
 	NextID() string
 }
 
+// Logger is the Logging interface
+type Logger interface {
+	Log(...interface{}) error
+}
+
+// Controller is the main point of this library.
 type Controller struct {
 	cron          *cron.Cron
 	masterActor   *actor.PID
@@ -47,13 +55,14 @@ type Controller struct {
 	statusManager StatusManager
 	lockManager   LockManager
 	jobDirectory  map[string]string
+	logger        Logger
 }
 
-// ControllerOption is used to configure the Controller. It takes on argument: the Controller we are operating on.
-type ControllerOption func(*Controller)
+// Option is used to configure the Controller. It takes on argument: the Controller we are operating on.
+type Option func(*Controller)
 
 // NewController returns a new Controller.
-func NewController(componentName string, idGenerator IDGenerator, lockManager LockManager, options ...ControllerOption) (*Controller, error) {
+func NewController(componentName string, idGenerator IDGenerator, lockManager LockManager, options ...Option) (*Controller, error) {
 
 	var componentID = idGenerator.NextID()
 
@@ -70,8 +79,9 @@ func NewController(componentName string, idGenerator IDGenerator, lockManager Lo
 		componentID:   componentID,
 		idGenerator:   idGenerator,
 		lockManager:   lockManager,
-		statusManager: nil,
+		statusManager: &status.NopStatusManager{},
 		jobDirectory:  make(map[string]string),
+		logger:        log.NewNopLogger(),
 	}
 
 	// Apply options to the Controller
@@ -83,9 +93,16 @@ func NewController(componentName string, idGenerator IDGenerator, lockManager Lo
 }
 
 // EnableStatusStorage is an option to provide a component for job execution information storage.
-func EnableStatusStorage(statusManager StatusManager) ControllerOption {
+func EnableStatusStorage(statusManager StatusManager) Option {
 	return func(c *Controller) {
 		c.statusManager = statusManager
+	}
+}
+
+// LogWith specify which Logger ot use.
+func LogWith(logger Logger) Option {
+	return func(c *Controller) {
+		c.logger = logger
 	}
 }
 
@@ -158,7 +175,6 @@ func (c *Controller) DisableAll() error {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -171,7 +187,6 @@ func (c *Controller) EnableAll() error {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -182,7 +197,6 @@ func (c *Controller) Disable(jobName string) error {
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it")
 	}
-
 	return c.lockManager.Disable(c.componentName, jobName)
 }
 
@@ -193,6 +207,5 @@ func (c *Controller) Enable(jobName string) error {
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it")
 	}
-
 	return c.lockManager.Enable(c.componentName, jobName)
 }

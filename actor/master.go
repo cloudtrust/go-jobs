@@ -12,7 +12,8 @@ type MasterActor struct {
 	componentName      string
 	componentID        string
 	workers            map[string]*actor.PID
-	workerPropsBuilder func(componentName string, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
+	workerPropsBuilder func(componentName string, componentID string, logger Logger, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
+	logger             Logger
 }
 
 // MasterOption is configuration option for MasterActor
@@ -51,18 +52,24 @@ type StatusManager interface {
 	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 }
 
-// BuildMasterActorProps build the Properties for the actor spawning.
-func BuildMasterActorProps(componentName string, componentID string, options ...MasterOption) *actor.Props {
-	return actor.FromProducer(newMasterActor(componentName, componentID, options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+// Logger is the Logging interface
+type Logger interface {
+	Log(...interface{}) error
 }
 
-func newMasterActor(componentName string, componentID string, options ...MasterOption) func() actor.Actor {
+// BuildMasterActorProps build the Properties for the actor spawning.
+func BuildMasterActorProps(componentName string, componentID string, logger Logger, options ...MasterOption) *actor.Props {
+	return actor.FromProducer(newMasterActor(componentName, componentID, logger, options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
+}
+
+func newMasterActor(componentName string, componentID string, logger Logger, options ...MasterOption) func() actor.Actor {
 	return func() actor.Actor {
 		var master = &MasterActor{
 			componentName:      componentName,
 			componentID:        componentID,
 			workers:            make(map[string]*actor.PID),
 			workerPropsBuilder: BuildWorkerActorProps,
+			logger:             logger,
 		}
 
 		// Apply options to the job
@@ -78,7 +85,7 @@ func newMasterActor(componentName string, componentID string, options ...MasterO
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = state.workerPropsBuilder(state.componentName, state.componentID, msg.Job, msg.IDGenerator, msg.LockManager, msg.StatusManager)
+		var props = state.workerPropsBuilder(state.componentName, state.componentID, state.logger, msg.Job, msg.IDGenerator, msg.LockManager, msg.StatusManager)
 		var worker = context.Spawn(props)
 		state.workers[msg.Job.Name()] = worker
 	case *StartJob:
@@ -86,7 +93,7 @@ func (state *MasterActor) Receive(context actor.Context) {
 	}
 }
 
-func workerPropsBuilder(builder func(componentName string, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
+func workerPropsBuilder(builder func(componentName string, componentID string, logger Logger, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
 	return func(m *MasterActor) {
 		m.workerPropsBuilder = builder
 	}

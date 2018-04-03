@@ -9,6 +9,7 @@ import (
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/actor/mock"
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/go-kit/kit/log"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
@@ -35,7 +36,7 @@ func TestNominalCase(t *testing.T) {
 
 	var job, _ = job.NewJob(jobName, job.Steps(successfulStep))
 
-	props := BuildMasterActorProps(componentName, componentID, workerPropsBuilder(mockBuilderWorkerActorProps))
+	props := BuildMasterActorProps(componentName, componentID, log.NewNopLogger(), workerPropsBuilder(mockBuilderWorkerActorProps))
 	master := actor.Spawn(props)
 
 	master.Tell(&RegisterJob{Job: job, IDGenerator: &DummyIDGenerator{}, LockManager: mockLockManager, StatusManager: mockStatusManager})
@@ -71,7 +72,7 @@ func TestWorkerRestartWhenPanicOccurs(t *testing.T) {
 
 	var job, _ = job.NewJob(jobName, job.Steps(mockStep))
 
-	props := BuildMasterActorProps(componentName, componentID, workerPropsBuilder(mockBuilderFailingWorkerActorProps))
+	props := BuildMasterActorProps(componentName, componentID, log.NewNopLogger(), workerPropsBuilder(mockBuilderFailingWorkerActorProps))
 	master := actor.Spawn(props)
 
 	master.Tell(&RegisterJob{Job: job, LockManager: nil, StatusManager: nil})
@@ -103,7 +104,7 @@ type mockWorkerActor struct {
 	statusManager StatusManager
 }
 
-func mockBuilderWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
+func mockBuilderWorkerActorProps(componentName, componentID string, logger Logger, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockWorkerActor{componentName: componentName, componentID: componentID, idGenerator: idGenerator, job: j, lockManager: l, statusManager: s}
 	})
@@ -127,7 +128,7 @@ type mockFailingWorkerActor struct {
 	statusManager StatusManager
 }
 
-func mockBuilderFailingWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
+func mockBuilderFailingWorkerActorProps(componentName, componentID string, logger Logger, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockFailingWorkerActor{job: j, lockManager: l, statusManager: s}
 	})

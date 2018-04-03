@@ -18,8 +18,9 @@ const (
 // RunnerActor is the actor in charge of the job execution
 // It has a state with the job in order to be able to automatically restart it if panic occurs.
 type RunnerActor struct {
-	jobID string
-	job   *job.Job
+	logger Logger
+	jobID  string
+	job    *job.Job
 }
 
 type nextStep struct {
@@ -41,13 +42,13 @@ type success struct {
 	stepInfos map[string]string
 }
 
-func newRunnerActor(jobID string, j *job.Job) actor.Actor {
-	return &RunnerActor{jobID: jobID, job: j}
+func newRunnerActor(logger Logger, jobID string, j *job.Job) actor.Actor {
+	return &RunnerActor{logger: logger, jobID: jobID, job: j}
 }
 
 // BuildRunnerActorProps build the Properties for the actor spawning.
-func BuildRunnerActorProps(jobID string, j *job.Job) *actor.Props {
-	return actor.FromProducer(func() actor.Actor { return newRunnerActor(jobID, j) })
+func BuildRunnerActorProps(logger Logger, jobID string, j *job.Job) *actor.Props {
+	return actor.FromProducer(func() actor.Actor { return newRunnerActor(logger, jobID, j) })
 }
 
 // Receive is the implementation of RunnerActor's behavior

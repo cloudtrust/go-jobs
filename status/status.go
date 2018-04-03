@@ -237,3 +237,26 @@ func (s *Status) Fail(componentName, componentID, jobName, jobID string, stepInf
 
 	return nil
 }
+
+// NopStatusManager is a No operation StatusManager
+type NopStatusManager struct{}
+
+// Start with nop implementation
+func (s *NopStatusManager) Start(componentName, jobName string) error {
+	return nil
+}
+
+// Update with nop implementation
+func (s *NopStatusManager) Update(componentName, jobName string, stepInfos map[string]string) error {
+	return nil
+}
+
+// Complete with nop implementation
+func (s *NopStatusManager) Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
+	return nil
+}
+
+// Fail with nop implementation
+func (s *NopStatusManager) Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
+	return nil
+}

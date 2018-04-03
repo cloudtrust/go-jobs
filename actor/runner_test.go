@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/go-kit/kit/log"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
@@ -27,7 +28,7 @@ func TestOneSuccessfulStepCase(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps("id1", job)
+			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
 			c.Spawn(props)
 		case *Status:
 			result = msg.status
@@ -57,7 +58,7 @@ func TestMultipleStepWiring(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps("id1", job)
+			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
 			c.Spawn(props)
 		case *Status:
 			result = msg.status
@@ -88,7 +89,7 @@ func TestInvalidResultFormat(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps("id1", job)
+			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
 			c.Spawn(props)
 		case *Status:
 			result = msg.status
@@ -119,7 +120,7 @@ func TestCleanupStepExecution(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps("id1", job)
+			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
 			c.Spawn(props)
 		case *Status:
 			result = msg.status
@@ -150,7 +151,7 @@ func TestErrorHandling(t *testing.T) {
 	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch msg := c.Message().(type) {
 		case *actor.Started:
-			props := BuildRunnerActorProps("id1", job)
+			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
 			c.Spawn(props)
 		case *Status:
 			result = msg.status
