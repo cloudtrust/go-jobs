@@ -14,10 +14,13 @@ const (
 )
 
 type WorkerActor struct {
+	componentName      string
+	componentID        string
+	idGenerator        IdGenerator
 	job                *job.Job
 	lockManager        LockManager
 	statusManager      StatusManager
-	runnerPropsBuilder func(job *job.Job) *actor.Props
+	runnerPropsBuilder func(jobID string, job *job.Job) *actor.Props
 	suicideTimeout     time.Duration
 	currentTimeoutType int
 }
@@ -27,39 +30,48 @@ type WorkerOption func(w *WorkerActor)
 type Execute struct{}
 
 type Status struct {
+	JobID   string
 	status  string
 	message map[string]string
 	infos   map[string]string
 }
 
 type HeartBeat struct {
+	JobID     string
 	StepInfos map[string]string
 }
 
-type RunnerStopped struct{}
+type RunnerStopped struct {
+	JobID string
+}
 
-type RunnerStarted struct{}
+type RunnerStarted struct {
+	JobID string
+}
 
 type LockManager interface {
-	Lock() error
-	Unlock() error
+	Unlock(componentName string, componentID string, jobName string, jobID string) error
+	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
 }
 
 type StatusManager interface {
-	Start() error
-	Update(stepInfos map[string]string) error
-	Complete(stepInfos, message map[string]string) error
-	Fail(stepInfos, message map[string]string) error
+	Start(componentName, jobName string) error
+	Update(componentName, jobName string, stepInfos map[string]string) error
+	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 }
 
-func BuildWorkerActorProps(j *job.Job, lm LockManager, sm StatusManager, options ...WorkerOption) *actor.Props {
-	return actor.FromProducer(newWorkerActor(j, lm, sm, options...)).WithSupervisor(workerActorSupervisorStrategy())
+func BuildWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IdGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) *actor.Props {
+	return actor.FromProducer(newWorkerActor(componentName, componentID, j, idGenerator, lm, sm, options...)).WithSupervisor(workerActorSupervisorStrategy())
 }
 
-func newWorkerActor(j *job.Job, lm LockManager, sm StatusManager, options ...WorkerOption) func() actor.Actor {
+func newWorkerActor(componentName, componentID string, j *job.Job, idGenerator IdGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
 		var worker = &WorkerActor{
+			componentName:      componentName,
+			componentID:        componentID,
 			job:                j,
+			idGenerator:        idGenerator,
 			lockManager:        lm,
 			statusManager:      sm,
 			suicideTimeout:     0,
@@ -81,7 +93,7 @@ func SuicideTimeout(d time.Duration) WorkerOption {
 	}
 }
 
-func runnerPropsBuilder(p func(job *job.Job) *actor.Props) WorkerOption {
+func runnerPropsBuilder(p func(jobID string, job *job.Job) *actor.Props) WorkerOption {
 	return func(w *WorkerActor) {
 		w.runnerPropsBuilder = p
 	}
@@ -90,7 +102,8 @@ func runnerPropsBuilder(p func(job *job.Job) *actor.Props) WorkerOption {
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
 	case *Execute:
-		if state.lockManager.Lock() != nil {
+		var jobID = state.idGenerator.NextId()
+		if state.lockManager.Lock(state.componentName, state.componentID, state.job.Name(), jobID, 0) != nil {
 			//TODO log lock not succeeded
 			return
 		}
@@ -101,19 +114,19 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		context.SetReceiveTimeout(state.job.ExecutionTimeout())
 
 		// Spawn Runner
-		props := state.runnerPropsBuilder(state.job)
+		props := state.runnerPropsBuilder(jobID, state.job)
 		context.Spawn(props)
 
 		if state.statusManager != nil {
-			state.statusManager.Start()
+			state.statusManager.Start(state.componentName, state.job.Name())
 		}
 
 	case *Status:
 		if state.statusManager != nil {
 			if message.status == Completed {
-				state.statusManager.Complete(message.infos, message.message)
+				state.statusManager.Complete(state.componentName, state.componentID, state.job.Name(), message.JobID, message.infos, message.message)
 			} else {
-				state.statusManager.Fail(message.infos, message.message)
+				state.statusManager.Fail(state.componentName, state.componentID, state.job.Name(), message.JobID, message.infos, message.message)
 			}
 		}
 		context.Children()[0].Stop()
@@ -125,11 +138,11 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		var s = message.StepInfos
 
 		if state.statusManager != nil {
-			state.statusManager.Update(s)
+			state.statusManager.Update(state.componentName, state.job.Name(), s)
 		}
 
 	case *RunnerStopped:
-		state.lockManager.Unlock()
+		state.lockManager.Unlock(state.componentName, state.componentID, state.job.Name(), message.JobID)
 
 	case *actor.ReceiveTimeout:
 		switch state.currentTimeoutType {

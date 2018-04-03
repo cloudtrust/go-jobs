@@ -16,34 +16,35 @@ const (
 
 // RunnerActor has a state with the job in order to be able to automatically restart it if panic occurs.
 type RunnerActor struct {
-	job *job.Job
+	jobID string
+	job   *job.Job
 }
 
-type NextStep struct {
+type nextStep struct {
 	job       *job.Job
 	prevRes   interface{}
 	i         int
 	stepInfos map[string]string
 }
 
-type Failure struct {
+type failure struct {
 	job       *job.Job
 	err       error
 	stepInfos map[string]string
 }
 
-type Success struct {
+type success struct {
 	job       *job.Job
 	result    map[string]string
 	stepInfos map[string]string
 }
 
-func newRunnerActor(j *job.Job) actor.Actor {
-	return &RunnerActor{job: j}
+func newRunnerActor(jobID string, j *job.Job) actor.Actor {
+	return &RunnerActor{jobID: jobID, job: j}
 }
 
-func BuildRunnerActorProps(j *job.Job) *actor.Props {
-	return actor.FromProducer(func() actor.Actor { return newRunnerActor(j) })
+func BuildRunnerActorProps(jobID string, j *job.Job) *actor.Props {
+	return actor.FromProducer(func() actor.Actor { return newRunnerActor(jobID, j) })
 }
 
 func (state *RunnerActor) Receive(context actor.Context) {
@@ -61,45 +62,45 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		}
 
 		i := 0
-		context.Self().Tell(&NextStep{state.job, nil, i, stepInfos})
+		context.Self().Tell(&nextStep{state.job, nil, i, stepInfos})
 
-	case *NextStep:
+	case *nextStep:
 		var step = msg.job.Steps()[msg.i]
 		var infos = msg.stepInfos
 		var previousRes = msg.prevRes
 		infos[stepName(step)] = "Running"
-		context.Parent().Tell(&HeartBeat{infos})
+		context.Parent().Tell(&HeartBeat{state.jobID, infos})
 
 		// TODO gérer le passage d'un context en 1° arg
 		var res, err = step(nil, previousRes)
 
 		if err != nil {
 			infos[stepName(step)] = "Failed"
-			context.Parent().Tell(&HeartBeat{infos})
-			context.Self().Tell(&Failure{msg.job, err, infos})
+			context.Parent().Tell(&HeartBeat{state.jobID, infos})
+			context.Self().Tell(&failure{msg.job, err, infos})
 			return
 		}
 
 		infos[stepName(step)] = "Completed"
-		context.Parent().Tell(&HeartBeat{infos})
+		context.Parent().Tell(&HeartBeat{state.jobID, infos})
 
 		var i = msg.i + 1
 
 		if i >= len(msg.job.Steps()) {
 			var mapRes, ok = res.(map[string]string)
 			if ok {
-				context.Self().Tell(&Success{msg.job, mapRes, infos})
+				context.Self().Tell(&success{msg.job, mapRes, infos})
 			} else {
 				err := errors.New("Invalid type result for last step")
-				context.Self().Tell(&Failure{msg.job, err, infos})
+				context.Self().Tell(&failure{msg.job, err, infos})
 			}
 			return
 		}
 
 		// TODO transamettre val (le retour de step) dans le message
 		// Ajouter val au context car on veut un contexte tout le temps
-		context.Self().Tell(&NextStep{msg.job, res, i, infos})
-	case *Failure:
+		context.Self().Tell(&nextStep{msg.job, res, i, infos})
+	case *failure:
 		var result = map[string]string{"Reason": msg.err.Error()}
 		var infos = msg.stepInfos
 
@@ -107,7 +108,7 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		if msg.job.CleanupStep() != nil {
 			var cleanStep = msg.job.CleanupStep()
 			infos[stepName(cleanStep)] = "Running"
-			context.Parent().Tell(&HeartBeat{infos})
+			context.Parent().Tell(&HeartBeat{state.jobID, infos})
 			var res, err = cleanStep(nil)
 
 			if err != nil {
@@ -122,10 +123,10 @@ func (state *RunnerActor) Receive(context actor.Context) {
 			}
 		}
 
-		context.Parent().Tell(&Status{Failed, result, infos})
+		context.Parent().Tell(&Status{state.jobID, Failed, result, infos})
 
-	case *Success:
-		context.Parent().Tell(&Status{Completed, msg.result, msg.stepInfos})
+	case *success:
+		context.Parent().Tell(&Status{state.jobID, Completed, msg.result, msg.stepInfos})
 	}
 }
 

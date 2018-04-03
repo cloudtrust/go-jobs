@@ -33,49 +33,49 @@ func (m *StatusManager) EXPECT() *StatusManagerMockRecorder {
 }
 
 // Complete mocks base method
-func (m *StatusManager) Complete(arg0, arg1 map[string]string) error {
-	ret := m.ctrl.Call(m, "Complete", arg0, arg1)
+func (m *StatusManager) Complete(arg0, arg1, arg2, arg3 string, arg4, arg5 map[string]string) error {
+	ret := m.ctrl.Call(m, "Complete", arg0, arg1, arg2, arg3, arg4, arg5)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Complete indicates an expected call of Complete
-func (mr *StatusManagerMockRecorder) Complete(arg0, arg1 interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Complete", reflect.TypeOf((*StatusManager)(nil).Complete), arg0, arg1)
+func (mr *StatusManagerMockRecorder) Complete(arg0, arg1, arg2, arg3, arg4, arg5 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Complete", reflect.TypeOf((*StatusManager)(nil).Complete), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // Fail mocks base method
-func (m *StatusManager) Fail(arg0, arg1 map[string]string) error {
-	ret := m.ctrl.Call(m, "Fail", arg0, arg1)
+func (m *StatusManager) Fail(arg0, arg1, arg2, arg3 string, arg4, arg5 map[string]string) error {
+	ret := m.ctrl.Call(m, "Fail", arg0, arg1, arg2, arg3, arg4, arg5)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Fail indicates an expected call of Fail
-func (mr *StatusManagerMockRecorder) Fail(arg0, arg1 interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Fail", reflect.TypeOf((*StatusManager)(nil).Fail), arg0, arg1)
+func (mr *StatusManagerMockRecorder) Fail(arg0, arg1, arg2, arg3, arg4, arg5 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Fail", reflect.TypeOf((*StatusManager)(nil).Fail), arg0, arg1, arg2, arg3, arg4, arg5)
 }
 
 // Start mocks base method
-func (m *StatusManager) Start() error {
-	ret := m.ctrl.Call(m, "Start")
+func (m *StatusManager) Start(arg0, arg1 string) error {
+	ret := m.ctrl.Call(m, "Start", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Start indicates an expected call of Start
-func (mr *StatusManagerMockRecorder) Start() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*StatusManager)(nil).Start))
+func (mr *StatusManagerMockRecorder) Start(arg0, arg1 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*StatusManager)(nil).Start), arg0, arg1)
 }
 
 // Update mocks base method
-func (m *StatusManager) Update(arg0 map[string]string) error {
-	ret := m.ctrl.Call(m, "Update", arg0)
+func (m *StatusManager) Update(arg0, arg1 string, arg2 map[string]string) error {
+	ret := m.ctrl.Call(m, "Update", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Update indicates an expected call of Update
-func (mr *StatusManagerMockRecorder) Update(arg0 interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*StatusManager)(nil).Update), arg0)
+func (mr *StatusManagerMockRecorder) Update(arg0, arg1, arg2 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*StatusManager)(nil).Update), arg0, arg1, arg2)
 }

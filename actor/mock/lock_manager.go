@@ -7,6 +7,7 @@ package mock
 import (
 	gomock "github.com/golang/mock/gomock"
 	reflect "reflect"
+	time "time"
 )
 
 // LockManager is a mock of LockManager interface
@@ -33,25 +34,25 @@ func (m *LockManager) EXPECT() *LockManagerMockRecorder {
 }
 
 // Lock mocks base method
-func (m *LockManager) Lock() error {
-	ret := m.ctrl.Call(m, "Lock")
+func (m *LockManager) Lock(arg0, arg1, arg2, arg3 string, arg4 time.Duration) error {
+	ret := m.ctrl.Call(m, "Lock", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Lock indicates an expected call of Lock
-func (mr *LockManagerMockRecorder) Lock() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Lock", reflect.TypeOf((*LockManager)(nil).Lock))
+func (mr *LockManagerMockRecorder) Lock(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Lock", reflect.TypeOf((*LockManager)(nil).Lock), arg0, arg1, arg2, arg3, arg4)
 }
 
 // Unlock mocks base method
-func (m *LockManager) Unlock() error {
-	ret := m.ctrl.Call(m, "Unlock")
+func (m *LockManager) Unlock(arg0, arg1, arg2, arg3 string) error {
+	ret := m.ctrl.Call(m, "Unlock", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Unlock indicates an expected call of Unlock
-func (mr *LockManagerMockRecorder) Unlock() *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unlock", reflect.TypeOf((*LockManager)(nil).Unlock))
+func (mr *LockManagerMockRecorder) Unlock(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unlock", reflect.TypeOf((*LockManager)(nil).Unlock), arg0, arg1, arg2, arg3)
 }

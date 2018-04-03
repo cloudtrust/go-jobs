@@ -3,12 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	job_actor "github.com/cloudtrust/go-jobs/actor"
 	"github.com/cloudtrust/go-jobs/job"
-	"github.com/cloudtrust/go-jobs/lock"
-	"github.com/cloudtrust/go-jobs/status"
 	"github.com/victorcoder/dkron/cron"
 )
 
@@ -19,15 +18,17 @@ type DB interface {
 }
 
 type LockManager interface {
-	Lock() error
-	Unlock() error
+	Enable(componentName string, jobName string) error
+	Disable(componentName string, jobName string) error
+	Unlock(componentName string, componentID string, jobName string, jobID string) error
+	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
 }
 
 type StatusManager interface {
-	Start() error
-	Update(stepInfos map[string]string) error
-	Complete(stepInfos, message map[string]string) error
-	Fail(stepInfos, message map[string]string) error
+	Start(componentName, jobName string) error
+	Update(componentName, jobName string, stepInfos map[string]string) error
+	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 }
 
 type IdGenerator interface {
@@ -35,16 +36,14 @@ type IdGenerator interface {
 }
 
 type Controller struct {
-	cron                 *cron.Cron
-	masterActor          *actor.PID
-	componentName        string
-	componentID          string
-	idGenerator          IdGenerator
-	lockMode             lock.LockMode
-	statusStorageEnabled bool
-	dbStatus             DB
-	dbLock               DB
-	jobDirectory         map[string]string
+	cron          *cron.Cron
+	masterActor   *actor.PID
+	componentName string
+	componentID   string
+	idGenerator   IdGenerator
+	statusManager StatusManager
+	lockManager   LockManager
+	jobDirectory  map[string]string
 }
 
 // ControllerOption is used to configure the Controller. It takes on argument: the Controller we are operating on.
@@ -55,7 +54,7 @@ type ControllerOption func(*Controller) error
 // DB connection param
 // Local lock mode vs DistributedLock mode
 // Kill timeout
-func NewController(componentName string, idGenerator IdGenerator, options ...ControllerOption) (*Controller, error) {
+func NewController(componentName string, idGenerator IdGenerator, lockManager LockManager, options ...ControllerOption) (*Controller, error) {
 
 	var componentID = idGenerator.NextId()
 
@@ -66,16 +65,14 @@ func NewController(componentName string, idGenerator IdGenerator, options ...Con
 	var pid = actor.Spawn(props)
 
 	var s = &Controller{
-		cron:                 cron,
-		masterActor:          pid,
-		componentName:        componentName,
-		componentID:          componentID,
-		idGenerator:          idGenerator,
-		lockMode:             lock.Local,
-		statusStorageEnabled: false,
-		dbStatus:             nil,
-		dbLock:               nil,
-		jobDirectory:         make(map[string]string),
+		cron:          cron,
+		masterActor:   pid,
+		componentName: componentName,
+		componentID:   componentID,
+		idGenerator:   idGenerator,
+		lockManager:   lockManager,
+		statusManager: nil,
+		jobDirectory:  make(map[string]string),
 	}
 
 	// Apply options to the Controller
@@ -89,28 +86,11 @@ func NewController(componentName string, idGenerator IdGenerator, options ...Con
 	return s, nil
 }
 
-func EnableDistrutedLock(db DB) ControllerOption {
+func EnableStatusStorage(statusManager StatusManager) ControllerOption {
 	return func(c *Controller) error {
-		c.dbLock = db
-		c.lockMode = lock.Distributed
+		c.statusManager = statusManager
 		return nil
 	}
-}
-
-func EnableStatusStorage(db DB) ControllerOption {
-	return func(c *Controller) error {
-		c.dbStatus = db
-		c.statusStorageEnabled = true
-		return nil
-	}
-}
-
-func (c *Controller) LockMode() lock.LockMode {
-	return c.lockMode
-}
-
-func (c *Controller) StatusStorageEnabled() bool {
-	return c.statusStorageEnabled
 }
 
 func (c *Controller) ComponentName() string {
@@ -131,20 +111,7 @@ func (c *Controller) Register(j *job.Job) {
 	var jobID = c.idGenerator.NextId()
 	c.jobDirectory[j.Name()] = jobID
 
-	var l LockManager
-	var s StatusManager
-
-	if c.lockMode == lock.Distributed {
-		l = lock.New(c.dbLock, c.componentName, c.componentID, j.Name(), jobID, 0)
-	} else {
-		l = lock.NewLocalLock()
-	}
-
-	if c.statusStorageEnabled {
-		s = status.New(c.dbStatus, c.componentName, c.componentID, j.Name(), jobID)
-	}
-
-	c.masterActor.Tell(&job_actor.RegisterJob{JobID: jobID, Job: j, StatusManager: s, LockManager: l})
+	c.masterActor.Tell(&job_actor.RegisterJob{JobID: jobID, Job: j, StatusManager: c.statusManager, LockManager: c.lockManager})
 }
 
 // AddTask schedule a run for the job.
@@ -185,12 +152,8 @@ func (c *Controller) Stop() {
 
 // DisableAll disables execution for all jobs.
 func (c *Controller) DisableAll() error {
-	if ok, err := c.assertDistirbutedLock(); !ok {
-		return err
-	}
-
 	for jobName, jobID := range c.jobDirectory {
-		var err = lock.New(c.dbLock, c.componentName, c.componentID, jobName, jobID, 0).Disable()
+		var err = c.lockManager.Disable(c.componentName, jobName)
 
 		if err != nil {
 			return err
@@ -202,12 +165,8 @@ func (c *Controller) DisableAll() error {
 
 // EnableAll enables execution for all jobs.
 func (c *Controller) EnableAll() error {
-	if ok, err := c.assertDistirbutedLock(); !ok {
-		return err
-	}
-
 	for jobName, jobID := range c.jobDirectory {
-		var err = lock.New(c.dbLock, c.componentName, c.componentID, jobName, jobID, 0).Enable()
+		var err = c.lockManager.Enable(c.componentName, jobName)
 
 		if err != nil {
 			return err
@@ -219,37 +178,22 @@ func (c *Controller) EnableAll() error {
 
 // Disable execution for the specified job.
 func (c *Controller) Disable(jobName string) error {
-	if ok, err := c.assertDistirbutedLock(); !ok {
-		return err
-	}
-
 	jobID, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
-	return lock.New(c.dbLock, c.componentName, c.componentID, jobName, jobID, 0).Disable()
+	return c.lockManager.Disable(c.componentName, jobName)
 }
 
 // Enable execution for the specified job.
 func (c *Controller) Enable(jobName string) error {
-	if ok, err := c.assertDistirbutedLock(); !ok {
-		return err
-	}
-
 	jobID, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
-	return lock.New(c.dbLock, c.componentName, c.componentID, jobName, jobID, 0).Enable()
-}
-
-func (c *Controller) assertDistirbutedLock() (bool, error) {
-	if c.lockMode == lock.Local {
-		return false, fmt.Errorf("Feature not available with 'Local' lock mode.")
-	}
-	return true, nil
+	return c.lockManager.Enable(c.componentName, jobName)
 }

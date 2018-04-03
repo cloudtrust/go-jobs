@@ -12,7 +12,7 @@ type MasterActor struct {
 	componentName      string
 	componentID        string
 	workers            map[string]*actor.PID
-	workerPropsBuilder func(j *job.Job, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
+	workerPropsBuilder func(componentName string, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
 }
 
 type MasterOption func(m *MasterActor)
@@ -21,6 +21,7 @@ type MasterOption func(m *MasterActor)
 type RegisterJob struct {
 	JobID         string
 	Job           *job.Job
+	IdGenerator   IdGenerator
 	LockManager   LockManager
 	StatusManager StatusManager
 }
@@ -66,7 +67,7 @@ func newMasterActor(componentName string, componentID string, options ...MasterO
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = state.workerPropsBuilder(msg.Job, msg.LockManager, msg.StatusManager)
+		var props = state.workerPropsBuilder(state.componentName, state.componentID, msg.Job, msg.IdGenerator, msg.LockManager, msg.StatusManager)
 		var worker = context.Spawn(props)
 		state.workers[msg.JobID] = worker
 	case *StartJob:
@@ -74,7 +75,7 @@ func (state *MasterActor) Receive(context actor.Context) {
 	}
 }
 
-func workerPropsBuilder(builder func(j *job.Job, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
+func workerPropsBuilder(builder func(componentName string, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
 	return func(m *MasterActor) {
 		m.workerPropsBuilder = builder
 	}
