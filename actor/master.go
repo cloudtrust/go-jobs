@@ -1,46 +1,57 @@
 package actor
 
 import (
-	"database/sql"
+	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/job"
 )
 
-// Root actor
+// MasterActor is the main actor for jobs execution. It handles unexpected Workers crashes.
 type MasterActor struct {
 	componentName      string
 	componentID        string
 	workers            map[string]*actor.PID
-	workerPropsBuilder func(componentName string, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
+	workerPropsBuilder func(componentName string, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props
 }
 
+// MasterOption is configuration option for MasterActor
 type MasterOption func(m *MasterActor)
 
-// Message triggered by API to MasterActor to register a new job.
+// RegisterJob is the message received by MasterActor to register a new job.
+// IDGenerator and LockManager must be not nil, StatusManager can be nil.
 type RegisterJob struct {
 	Job           *job.Job
-	IdGenerator   IdGenerator
+	IDGenerator   IDGenerator
 	LockManager   LockManager
 	StatusManager StatusManager
 }
 
-// Message triggerred by Cron to MasterActor to launch job.
+// StartJob is a message received by MasterActor to launch the execution of a job.
 type StartJob struct {
 	JobName string
 }
 
-// DB is the interface of the DB.
-type IdGenerator interface {
-	NextId() string
+// IDGenerator is used to compute a unique identifier for component instance and job execution instance.
+type IDGenerator interface {
+	NextID() string
 }
 
-// DB is the interface of the DB.
-type DB interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
+// LockManager is the lock policy to prevent concurrent job execution.
+type LockManager interface {
+	Unlock(componentName string, componentID string, jobName string, jobID string) error
+	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
 }
 
+// StatusManager is the component used to persist information about job executions.
+type StatusManager interface {
+	Start(componentName, jobName string) error
+	Update(componentName, jobName string, stepInfos map[string]string) error
+	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+}
+
+// BuildMasterActorProps build the Properties for the actor spawning.
 func BuildMasterActorProps(componentName string, componentID string, options ...MasterOption) *actor.Props {
 	return actor.FromProducer(newMasterActor(componentName, componentID, options...)).WithSupervisor(masterActorSupervisorStrategy()).WithGuardian(masterActorGuardianStrategy())
 }
@@ -63,10 +74,11 @@ func newMasterActor(componentName string, componentID string, options ...MasterO
 	}
 }
 
+// Receive is the implementation of MasterActor's behavior
 func (state *MasterActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *RegisterJob:
-		var props = state.workerPropsBuilder(state.componentName, state.componentID, msg.Job, msg.IdGenerator, msg.LockManager, msg.StatusManager)
+		var props = state.workerPropsBuilder(state.componentName, state.componentID, msg.Job, msg.IDGenerator, msg.LockManager, msg.StatusManager)
 		var worker = context.Spawn(props)
 		state.workers[msg.Job.Name()] = worker
 	case *StartJob:
@@ -74,13 +86,14 @@ func (state *MasterActor) Receive(context actor.Context) {
 	}
 }
 
-func workerPropsBuilder(builder func(componentName string, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
+func workerPropsBuilder(builder func(componentName string, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props) MasterOption {
 	return func(m *MasterActor) {
 		m.workerPropsBuilder = builder
 	}
 }
 
 // Supervision Strategy of MasterActor about its childs (i.e. WorkerActors)
+// It try to restart the actor multiple times unless the actor has failed due to SuicideTimeout.
 func masterActorSupervisorStrategy() actor.SupervisorStrategy {
 	return actor.NewOneForOneStrategy(10, 1000, masterActorDecider)
 }
@@ -94,6 +107,7 @@ func masterActorDecider(reason interface{}) actor.Directive {
 	}
 }
 
+// Guardian Strategy for MasterActor which always panics.
 func masterActorGuardianStrategy() actor.SupervisorStrategy {
 	return actor.NewOneForOneStrategy(10, 1000, alwaysPanicDecider)
 }

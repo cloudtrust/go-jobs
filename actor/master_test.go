@@ -38,7 +38,7 @@ func TestNominalCase(t *testing.T) {
 	props := BuildMasterActorProps(componentName, componentID, workerPropsBuilder(mockBuilderWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{Job: job, IdGenerator: &DummyIdGenerator{}, LockManager: mockLockManager, StatusManager: mockStatusManager})
+	master.Tell(&RegisterJob{Job: job, IDGenerator: &DummyIDGenerator{}, LockManager: mockLockManager, StatusManager: mockStatusManager})
 	master.Tell(&StartJob{JobName: jobName})
 
 	wg.Wait()
@@ -97,13 +97,13 @@ func TestAlwaysPanicDecider(t *testing.T) {
 type mockWorkerActor struct {
 	componentName string
 	componentID   string
-	idGenerator   IdGenerator
+	idGenerator   IDGenerator
 	job           *job.Job
 	lockManager   LockManager
 	statusManager StatusManager
 }
 
-func mockBuilderWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
+func mockBuilderWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockWorkerActor{componentName: componentName, componentID: componentID, idGenerator: idGenerator, job: j, lockManager: l, statusManager: s}
 	})
@@ -114,7 +114,7 @@ func (state *mockWorkerActor) Receive(context actor.Context) {
 	case *actor.Started:
 		state.statusManager.Start(state.componentName, state.job.Name())
 	case *Execute:
-		var jobID = state.idGenerator.NextId()
+		var jobID = state.idGenerator.NextID()
 		state.lockManager.Lock(state.componentName, state.componentID, state.job.Name(), jobID, 0)
 	}
 
@@ -127,7 +127,7 @@ type mockFailingWorkerActor struct {
 	statusManager StatusManager
 }
 
-func mockBuilderFailingWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
+func mockBuilderFailingWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IDGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
 		return &mockFailingWorkerActor{job: j, lockManager: l, statusManager: s}
 	})

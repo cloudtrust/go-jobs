@@ -35,7 +35,7 @@ func TestWorkerNominalCase(t *testing.T) {
 	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	mockLockManager.EXPECT().Unlock(componentName, componentID, jobName, gomock.Any()).Do(func(string, string, string, string) { wg.Done() }).Return(nil).Times(1)
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	var expectedStepInfos1 = map[string]string{"step1": "Running"}
 	var expectedStepInfos2 = map[string]string{"step1": "Completed"}
@@ -54,7 +54,7 @@ func TestWorkerNominalCase(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -87,7 +87,7 @@ func TestAlreadyLocked(t *testing.T) {
 	mockStatusManager.EXPECT().Complete(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 	mockStatusManager.EXPECT().Fail(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	wg.Add(1)
 
@@ -96,7 +96,7 @@ func TestAlreadyLocked(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewWorkingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -133,7 +133,7 @@ func TestFailure(t *testing.T) {
 	mockStatusManager.EXPECT().Fail(componentName, componentID, jobName, gomock.Any(), expectedStepInfos2, expectedMessage).Times(1)
 	mockStatusManager.EXPECT().Complete(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	wg.Add(1)
 
@@ -142,7 +142,7 @@ func TestFailure(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager,
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewFailingRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -172,16 +172,16 @@ func TestExecutionTimeout(t *testing.T) {
 	mockStatusManager.EXPECT().Start(componentName, jobName).Return(nil).Times(1)
 	mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob(jobName, job.Steps(successfulStep), job.ExecutionTimeout(2*time.Second))
+	var job, _ = job.NewJob(jobName, job.Steps(successfulStep), job.NormalDuration(10*time.Millisecond), job.ExecutionTimeout(2*time.Second), job.SuicideTimeout(10*time.Second))
 
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager, SuicideTimeout(10*time.Second),
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
 				runnerPropsBuilder(mockNewSlowRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
@@ -231,17 +231,17 @@ func TestSuicideTimeout(t *testing.T) {
 		})
 	}
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob(jobName, job.Steps(successfulStep), job.ExecutionTimeout(1*time.Second))
+	var job, _ = job.NewJob(jobName, job.Steps(successfulStep), job.ExecutionTimeout(1*time.Second), job.SuicideTimeout(1*time.Second))
 
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager,
-				SuicideTimeout(1*time.Second), runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder))
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager,
+				runnerPropsBuilder(mockNewInfiniteLoopRunnerActorBuilder))
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -268,15 +268,15 @@ func TestRunnerRestartWhenPanicOccurs(t *testing.T) {
 	var mockLockManager = mock.NewLockManager(mockCtrl)
 
 	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, gomock.Any(), gomock.Any()).Return(nil).Times(1)
-	mockLockManager.EXPECT().Unlock(componentName, componentID, jobName, gomock.Any()).Do(func() { wg.Done() }).Return(nil).MaxTimes(0)
+	mockLockManager.EXPECT().Unlock(componentName, componentID, jobName, gomock.Any()).Do(func() { wg.Done() }).Return(nil).MinTimes(0)
 
 	var mockStatusManager = mock.NewStatusManager(mockCtrl)
 	mockStatusManager.EXPECT().Start(componentName, jobName).Return(nil).Times(1)
 	mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).MinTimes(4)
-	mockStatusManager.EXPECT().Fail(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
-	mockStatusManager.EXPECT().Complete(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(0)
+	mockStatusManager.EXPECT().Fail(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(0).MaxTimes(0)
+	mockStatusManager.EXPECT().Complete(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MinTimes(0).MaxTimes(0)
 
-	var dummyIdGenerator = &DummyIdGenerator{}
+	var dummyIDGenerator = &DummyIDGenerator{}
 
 	wg.Add(1)
 
@@ -297,7 +297,7 @@ func TestRunnerRestartWhenPanicOccurs(t *testing.T) {
 	master := actor.Spawn(actor.FromFunc(func(c actor.Context) {
 		switch c.Message().(type) {
 		case *actor.Started:
-			props := BuildWorkerActorProps(componentName, componentID, job, dummyIdGenerator, mockLockManager, mockStatusManager)
+			props := BuildWorkerActorProps(componentName, componentID, job, dummyIDGenerator, mockLockManager, mockStatusManager)
 			worker := c.Spawn(props)
 			worker.Tell(&Execute{})
 		}
@@ -434,11 +434,11 @@ func (state *mockInfiniteLoopRunnerActor) Receive(context actor.Context) {
 	}
 }
 
-type DummyIdGenerator struct {
+type DummyIDGenerator struct {
 	i int
 }
 
-func (g *DummyIdGenerator) NextId() string {
+func (g *DummyIDGenerator) NextID() string {
 	g.i = g.i + 1
 	return strconv.Itoa(g.i)
 }

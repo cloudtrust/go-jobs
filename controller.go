@@ -17,6 +17,7 @@ type DB interface {
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
+// LockManager is the lock policy to prevent concurrent job execution.
 type LockManager interface {
 	Enable(componentName string, jobName string) error
 	Disable(componentName string, jobName string) error
@@ -24,6 +25,7 @@ type LockManager interface {
 	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
 }
 
+// StatusManager is the component used to persist information about job executions.
 type StatusManager interface {
 	Start(componentName, jobName string) error
 	Update(componentName, jobName string, stepInfos map[string]string) error
@@ -31,8 +33,9 @@ type StatusManager interface {
 	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 }
 
-type IdGenerator interface {
-	NextId() string
+// IDGenerator is used to compute a unique identifier for component instance and job execution instance.
+type IDGenerator interface {
+	NextID() string
 }
 
 type Controller struct {
@@ -40,7 +43,7 @@ type Controller struct {
 	masterActor   *actor.PID
 	componentName string
 	componentID   string
-	idGenerator   IdGenerator
+	idGenerator   IDGenerator
 	statusManager StatusManager
 	lockManager   LockManager
 	jobDirectory  map[string]string
@@ -50,13 +53,9 @@ type Controller struct {
 type ControllerOption func(*Controller)
 
 // NewController returns a new Controller.
-// TODO options
-// DB connection param
-// Local lock mode vs DistributedLock mode
-// Kill timeout
-func NewController(componentName string, idGenerator IdGenerator, lockManager LockManager, options ...ControllerOption) (*Controller, error) {
+func NewController(componentName string, idGenerator IDGenerator, lockManager LockManager, options ...ControllerOption) (*Controller, error) {
 
-	var componentID = idGenerator.NextId()
+	var componentID = idGenerator.NextID()
 
 	var cron = cron.New()
 	cron.Start()
@@ -83,21 +82,24 @@ func NewController(componentName string, idGenerator IdGenerator, lockManager Lo
 	return s, nil
 }
 
+// EnableStatusStorage is an option to provide a component for job execution information storage.
 func EnableStatusStorage(statusManager StatusManager) ControllerOption {
 	return func(c *Controller) {
 		c.statusManager = statusManager
 	}
 }
 
+//ComponentName returns the ComponentName of the instance.
 func (c *Controller) ComponentName() string {
 	return c.componentName
 }
 
+//ComponentID returns the ComponentID of the instance. This ID was computed thanks to the IDGenerator.
 func (c *Controller) ComponentID() string {
 	return c.componentID
 }
 
-// Register a job.
+// Register a new job. This method must be called first to be able to Schedule/Execute a job.
 func (c *Controller) Register(j *job.Job) {
 	if _, ok := c.jobDirectory[j.Name()]; ok {
 		//already registered
@@ -106,15 +108,16 @@ func (c *Controller) Register(j *job.Job) {
 
 	c.jobDirectory[j.Name()] = ""
 
-	c.masterActor.Tell(&job_actor.RegisterJob{Job: j, IdGenerator: c.idGenerator, StatusManager: c.statusManager, LockManager: c.lockManager})
+	c.masterActor.Tell(&job_actor.RegisterJob{Job: j, IDGenerator: c.idGenerator, StatusManager: c.statusManager, LockManager: c.lockManager})
 }
 
-// AddTask schedule a run for the job.
+// Schedule a job execution according to a cron expression.
+// See https://godoc.org/github.com/victorcoder/dkron/cron for cron expression syntax.
 func (c *Controller) Schedule(cron string, jobName string) error {
 	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
-		return fmt.Errorf("Unknown job. First register it.")
+		return fmt.Errorf("Unknown job. First register it")
 	}
 
 	c.cron.AddFunc(cron, func() {
@@ -124,29 +127,31 @@ func (c *Controller) Schedule(cron string, jobName string) error {
 	return nil
 }
 
+// Execute trigger an immediate job execution. (Lock policy is still applied)
 func (c *Controller) Execute(jobName string) error {
 	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
-		return fmt.Errorf("Unknown job. First register it.")
+		return fmt.Errorf("Unknown job. First register it")
 	}
 
 	c.masterActor.Tell(&job_actor.StartJob{JobName: jobName})
 	return nil
 }
 
-// Start the cron
+// Start the cron.
 func (c *Controller) Start() {
 	c.cron.Start()
 }
 
+//Stop the cron. All the scheduled tasks will not be executed until Start() is called.
 func (c *Controller) Stop() {
 	c.cron.Stop()
 }
 
-// DisableAll disables execution for all jobs.
+// DisableAll disables execution for all jobs according to the LockManager policy implementation.
 func (c *Controller) DisableAll() error {
-	for jobName, _ := range c.jobDirectory {
+	for jobName := range c.jobDirectory {
 		var err = c.lockManager.Disable(c.componentName, jobName)
 
 		if err != nil {
@@ -159,7 +164,7 @@ func (c *Controller) DisableAll() error {
 
 // EnableAll enables execution for all jobs.
 func (c *Controller) EnableAll() error {
-	for jobName, _ := range c.jobDirectory {
+	for jobName := range c.jobDirectory {
 		var err = c.lockManager.Enable(c.componentName, jobName)
 
 		if err != nil {
@@ -170,12 +175,12 @@ func (c *Controller) EnableAll() error {
 	return nil
 }
 
-// Disable execution for the specified job.
+// Disable execution for the specified job according to the LockManager policy implementation.
 func (c *Controller) Disable(jobName string) error {
 	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
-		return fmt.Errorf("Unknown job. First register it.")
+		return fmt.Errorf("Unknown job. First register it")
 	}
 
 	return c.lockManager.Disable(c.componentName, jobName)
@@ -186,7 +191,7 @@ func (c *Controller) Enable(jobName string) error {
 	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
-		return fmt.Errorf("Unknown job. First register it.")
+		return fmt.Errorf("Unknown job. First register it")
 	}
 
 	return c.lockManager.Enable(c.componentName, jobName)

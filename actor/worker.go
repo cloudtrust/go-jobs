@@ -8,27 +8,32 @@ import (
 )
 
 const (
-	normalExecution  = 0
-	executionTimeout = 1
-	suicideTimeout   = 2
+	notInitialized   = 0
+	normalDuration   = 1
+	executionTimeout = 2
+	suicideTimeout   = 3
+	noTimeout        = 4
 )
 
+// WorkerActor is the actor responsibles of the execution of a specific job. It checks the locks, persist the status if enabled. Handles timeout and unexpected failures of RunnerActor.
 type WorkerActor struct {
 	componentName      string
 	componentID        string
-	idGenerator        IdGenerator
+	idGenerator        IDGenerator
 	job                *job.Job
 	lockManager        LockManager
 	statusManager      StatusManager
 	runnerPropsBuilder func(jobID string, job *job.Job) *actor.Props
-	suicideTimeout     time.Duration
 	currentTimeoutType int
 }
 
+// WorkerOption to configure the WorkerActor.
 type WorkerOption func(w *WorkerActor)
 
+// Execute message is sent by MasterActor to command to WorkerActor to launch the execution of the job.
 type Execute struct{}
 
+// Status message is sent by RunnerActor to inform the Worker about its final execution status.
 type Status struct {
 	JobID   string
 	status  string
@@ -36,36 +41,28 @@ type Status struct {
 	infos   map[string]string
 }
 
+// Heartbeat message is sent by RunnerActor to give sign of live to the Worker and inform about its current status.
 type HeartBeat struct {
 	JobID     string
 	StepInfos map[string]string
 }
 
+// RunnerStopped message is sent by RunnerActor to Worker to notify its shutdown
 type RunnerStopped struct {
 	JobID string
 }
 
+// RunnerStarted message is sent by RunnerActor to Worker to notify it has started
 type RunnerStarted struct {
 	JobID string
 }
 
-type LockManager interface {
-	Unlock(componentName string, componentID string, jobName string, jobID string) error
-	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
-}
-
-type StatusManager interface {
-	Start(componentName, jobName string) error
-	Update(componentName, jobName string, stepInfos map[string]string) error
-	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
-	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
-}
-
-func BuildWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IdGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) *actor.Props {
+// BuildWorkerActorProps build the Properties for the actor spawning.
+func BuildWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IDGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(newWorkerActor(componentName, componentID, j, idGenerator, lm, sm, options...)).WithSupervisor(workerActorSupervisorStrategy())
 }
 
-func newWorkerActor(componentName, componentID string, j *job.Job, idGenerator IdGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) func() actor.Actor {
+func newWorkerActor(componentName, componentID string, j *job.Job, idGenerator IDGenerator, lm LockManager, sm StatusManager, options ...WorkerOption) func() actor.Actor {
 	return func() actor.Actor {
 		var worker = &WorkerActor{
 			componentName:      componentName,
@@ -74,7 +71,6 @@ func newWorkerActor(componentName, componentID string, j *job.Job, idGenerator I
 			idGenerator:        idGenerator,
 			lockManager:        lm,
 			statusManager:      sm,
-			suicideTimeout:     0,
 			runnerPropsBuilder: BuildRunnerActorProps,
 		}
 
@@ -87,31 +83,23 @@ func newWorkerActor(componentName, componentID string, j *job.Job, idGenerator I
 	}
 }
 
-func SuicideTimeout(d time.Duration) WorkerOption {
-	return func(w *WorkerActor) {
-		w.suicideTimeout = d
-	}
-}
-
 func runnerPropsBuilder(p func(jobID string, job *job.Job) *actor.Props) WorkerOption {
 	return func(w *WorkerActor) {
 		w.runnerPropsBuilder = p
 	}
 }
 
+// Receive is the implementation of WorkerActor's behavior
 func (state *WorkerActor) Receive(context actor.Context) {
 	switch message := context.Message().(type) {
 	case *Execute:
-		var jobID = state.idGenerator.NextId()
-		if state.lockManager.Lock(state.componentName, state.componentID, state.job.Name(), jobID, 0) != nil {
+		var jobID = state.idGenerator.NextID()
+		if state.lockManager.Lock(state.componentName, state.componentID, state.job.Name(), jobID, state.job.SuicideTimeout()) != nil {
 			//TODO log lock not succeeded
 			return
 		}
 
-		// Set NormalExecutionTimeout
-		// TODO normal execution is optional, set it only iff value provided. same for exectimeout and/or suicide timeout
-		state.currentTimeoutType = normalExecution
-		context.SetReceiveTimeout(state.job.ExecutionTimeout())
+		applyTimeout(context, state)
 
 		// Spawn Runner
 		props := state.runnerPropsBuilder(jobID, state.job)
@@ -133,8 +121,9 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		// unlock will be auto called by stop of runner
 
 	case *HeartBeat:
-		state.currentTimeoutType = normalExecution
-		context.SetReceiveTimeout(state.job.ExecutionTimeout())
+		state.currentTimeoutType = notInitialized
+		applyTimeout(context, state)
+
 		var s = message.StepInfos
 
 		if state.statusManager != nil {
@@ -145,21 +134,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		state.lockManager.Unlock(state.componentName, state.componentID, state.job.Name(), message.JobID)
 
 	case *actor.ReceiveTimeout:
-		switch state.currentTimeoutType {
-		case normalExecution:
-			//TODO LOG the info about normal execution exceeded
-			state.currentTimeoutType = executionTimeout
-			context.SetReceiveTimeout(state.job.ExecutionTimeout())
-		case executionTimeout:
-			state.currentTimeoutType = suicideTimeout
-			context.SetReceiveTimeout(state.suicideTimeout)
-			context.Children()[0].Stop()
-			// unlock will be auto called by stop of runner
-		case suicideTimeout:
-			//cancel
-			//unlock
-			panic("SUICIDE_TIMEOUT")
-		}
+		applyTimeout(context, state)
 	}
 }
 
@@ -170,4 +145,24 @@ func workerActorSupervisorStrategy() actor.SupervisorStrategy {
 
 func restartDecider(reason interface{}) actor.Directive {
 	return actor.RestartDirective
+}
+
+func applyTimeout(context actor.Context, state *WorkerActor) {
+	if state.job.NormalDuration() != 0 && state.currentTimeoutType == notInitialized {
+		state.currentTimeoutType = normalDuration
+		context.SetReceiveTimeout(state.job.NormalDuration())
+	} else if state.job.ExecutionTimeout() != 0 && state.currentTimeoutType < executionTimeout {
+		// TODO log normal timeout exceeded
+		state.currentTimeoutType = executionTimeout
+		context.SetReceiveTimeout(state.job.ExecutionTimeout())
+	} else if state.job.SuicideTimeout() != 0 && state.currentTimeoutType < suicideTimeout {
+		// TODO log execution timeout exceeded
+		state.currentTimeoutType = suicideTimeout
+		context.SetReceiveTimeout(state.job.SuicideTimeout())
+	} else if state.currentTimeoutType == suicideTimeout {
+		// TODO log suicide timeout exceeded
+		panic("SUICIDE_TIMEOUT")
+	} else {
+		state.currentTimeoutType = noTimeout
+	}
 }

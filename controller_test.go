@@ -13,7 +13,7 @@ import (
 
 func TestNominalUsage(t *testing.T) {
 	//new, register, schedule, now
-	var jobController, err = NewController("componentName", &DummyIdGenerator{}, &DummyLockManager{make(map[string]bool)})
+	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)})
 
 	assert.Nil(t, err)
 	var count = 0
@@ -48,7 +48,7 @@ func TestNominalUsage(t *testing.T) {
 }
 
 func TestDisabledFunctions(t *testing.T) {
-	var jobController, err = NewController("componentName", &DummyIdGenerator{}, &DummyLockManager{make(map[string]bool)})
+	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)})
 
 	assert.Nil(t, err)
 
@@ -77,7 +77,7 @@ func TestDisabledFunctions(t *testing.T) {
 
 func TestStatusManagerOption(t *testing.T) {
 	var statusStorage = &DummyStatusManager{}
-	var jobController, err = NewController("componentName", &DummyIdGenerator{}, &DummyLockManager{make(map[string]bool)}, EnableStatusStorage(statusStorage))
+	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)}, EnableStatusStorage(statusStorage))
 
 	assert.Nil(t, err)
 
@@ -101,7 +101,7 @@ func TestStatusManagerOption(t *testing.T) {
 func TestLockError(t *testing.T) {
 	//This test is mainly for coverage
 
-	var jobController, err = NewController("componentName", &DummyIdGenerator{}, &FailLockManager{})
+	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &FailLockManager{})
 
 	assert.Nil(t, err)
 
@@ -122,12 +122,12 @@ func TestLockError(t *testing.T) {
 
 /* Utils */
 
-//IdGenerator
-type DummyIdGenerator struct {
+//IDGenerator
+type DummyIDGenerator struct {
 	i int
 }
 
-func (g *DummyIdGenerator) NextId() string {
+func (g *DummyIDGenerator) NextID() string {
 	g.i = g.i + 1
 	return strconv.Itoa(g.i)
 }

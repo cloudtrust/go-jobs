@@ -22,16 +22,19 @@ type Job struct {
 	// Step of cleanup is optional.
 	// Note: This step of cleanup is called in best effort but without warranty.
 	cleanupStep CleanupStep
-	// Timeout of the job execution.
+	// Expected duration of the job
+	normalDuration time.Duration
+	// Timeout of the job execution, if exceeded, the job should be stopped.
 	// By default there is no timeout.
 	// Note: the job will only be interrupted at the end of a Step.
 	executionTimeout time.Duration
-	// Expected duration of the job
-	normalDuration time.Duration
+	// safeguard againt infinite loop. If exceeded, the whole application can be killed.
+	// By default there is no timeout.
+	suicideTimeout time.Duration
 }
 
 // Option is used to configure the Job. It takes on argument: the Job we are operating on.
-type Option func(*Job) error
+type Option func(*Job)
 
 // Steps is a syntaxic sugar for definition of a slice of Step.
 func Steps(s ...Step) []Step {
@@ -58,10 +61,7 @@ func NewJob(name string, steps []Step, options ...Option) (*Job, error) {
 
 	// Apply options to the job
 	for _, opt := range options {
-		var err = opt(job)
-		if err != nil {
-			return nil, err
-		}
+		opt(job)
 	}
 
 	return job, nil
@@ -90,26 +90,34 @@ func (j *Job) ExecutionTimeout() time.Duration {
 	return j.executionTimeout
 }
 
+func (j *Job) SuicideTimeout() time.Duration {
+	return j.suicideTimeout
+}
+
 // Cleanup is the option used to set a step of cleanup
 func Cleanup(s CleanupStep) Option {
-	return func(j *Job) error {
+	return func(j *Job) {
 		j.cleanupStep = s
-		return nil
 	}
 }
 
 // NormalDuration is the option used to set the normal duration of job execution
 func NormalDuration(d time.Duration) Option {
-	return func(j *Job) error {
+	return func(j *Job) {
 		j.normalDuration = d
-		return nil
 	}
 }
 
 // ExecutionTimeout is the option used to set the job execution timeout
 func ExecutionTimeout(d time.Duration) Option {
-	return func(j *Job) error {
+	return func(j *Job) {
 		j.executionTimeout = d
-		return nil
+	}
+}
+
+// SuicideTimeout is the option used to set the job suicide timeout
+func SuicideTimeout(d time.Duration) Option {
+	return func(j *Job) {
+		j.suicideTimeout = d
 	}
 }

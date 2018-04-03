@@ -1,9 +1,9 @@
 package job
 
 import (
-	"time"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -37,8 +37,7 @@ func TestNewJobWithInvalidSteps(t *testing.T) {
 	assert.Nil(t, job)
 }
 
-
-func TestGetName(t *testing.T){
+func TestGetName(t *testing.T) {
 	var name = "ID"
 	var job, err = NewJob(name, Steps(step))
 
@@ -47,7 +46,7 @@ func TestGetName(t *testing.T){
 	assert.Equal(t, name, job.Name())
 }
 
-func TestSteps(t *testing.T){
+func TestSteps(t *testing.T) {
 	var name = "ID"
 	var job, err = NewJob(name, Steps(step, step))
 
@@ -64,8 +63,7 @@ func TestCleanup(t *testing.T) {
 	assert.NotNil(t, job.CleanupStep())
 }
 
-
-func TestNormalDuration(t *testing.T){
+func TestNormalDuration(t *testing.T) {
 	var d = 500 * time.Millisecond
 	var job, err = NewJob("ID", Steps(step, step), NormalDuration(d))
 
@@ -74,7 +72,6 @@ func TestNormalDuration(t *testing.T){
 	assert.Equal(t, d, job.NormalDuration())
 }
 
-
 func TestExecutionTimeout(t *testing.T) {
 	var d = 500 * time.Millisecond
 	var job, err = NewJob("ID", Steps(step, step), ExecutionTimeout(d))
@@ -82,4 +79,13 @@ func TestExecutionTimeout(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, job)
 	assert.Equal(t, d, job.ExecutionTimeout())
+}
+
+func TestSuicideTimeout(t *testing.T) {
+	var d = 500 * time.Millisecond
+	var job, err = NewJob("ID", Steps(step, step), SuicideTimeout(d))
+
+	assert.Nil(t, err)
+	assert.NotNil(t, job)
+	assert.Equal(t, d, job.SuicideTimeout())
 }

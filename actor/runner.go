@@ -9,12 +9,14 @@ import (
 	"github.com/cloudtrust/go-jobs/job"
 )
 
+// Job execution status
 const (
 	Completed = "COMPLETED"
 	Failed    = "FAILED"
 )
 
-// RunnerActor has a state with the job in order to be able to automatically restart it if panic occurs.
+// RunnerActor is the actor in charge of the job execution
+// It has a state with the job in order to be able to automatically restart it if panic occurs.
 type RunnerActor struct {
 	jobID string
 	job   *job.Job
@@ -43,10 +45,12 @@ func newRunnerActor(jobID string, j *job.Job) actor.Actor {
 	return &RunnerActor{jobID: jobID, job: j}
 }
 
+// BuildRunnerActorProps build the Properties for the actor spawning.
 func BuildRunnerActorProps(jobID string, j *job.Job) *actor.Props {
 	return actor.FromProducer(func() actor.Actor { return newRunnerActor(jobID, j) })
 }
 
+// Receive is the implementation of RunnerActor's behavior
 func (state *RunnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *actor.Stopped:
@@ -58,7 +62,7 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		var stepInfos = make(map[string]string)
 
 		for _, step := range state.job.Steps() {
-			stepInfos[stepName(step)] = "Iddle"
+			stepInfos[stepName(step)] = "IDdle"
 		}
 
 		i := 0
