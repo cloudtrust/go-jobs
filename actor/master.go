@@ -19,7 +19,6 @@ type MasterOption func(m *MasterActor)
 
 // Message triggered by API to MasterActor to register a new job.
 type RegisterJob struct {
-	JobID         string
 	Job           *job.Job
 	IdGenerator   IdGenerator
 	LockManager   LockManager
@@ -28,7 +27,7 @@ type RegisterJob struct {
 
 // Message triggerred by Cron to MasterActor to launch job.
 type StartJob struct {
-	JobID string
+	JobName string
 }
 
 // DB is the interface of the DB.
@@ -69,9 +68,9 @@ func (state *MasterActor) Receive(context actor.Context) {
 	case *RegisterJob:
 		var props = state.workerPropsBuilder(state.componentName, state.componentID, msg.Job, msg.IdGenerator, msg.LockManager, msg.StatusManager)
 		var worker = context.Spawn(props)
-		state.workers[msg.JobID] = worker
+		state.workers[msg.Job.Name()] = worker
 	case *StartJob:
-		state.workers[msg.JobID].Tell(&Execute{})
+		state.workers[msg.JobName].Tell(&Execute{})
 	}
 }
 

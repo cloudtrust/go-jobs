@@ -47,7 +47,7 @@ type Controller struct {
 }
 
 // ControllerOption is used to configure the Controller. It takes on argument: the Controller we are operating on.
-type ControllerOption func(*Controller) error
+type ControllerOption func(*Controller)
 
 // NewController returns a new Controller.
 // TODO options
@@ -77,19 +77,15 @@ func NewController(componentName string, idGenerator IdGenerator, lockManager Lo
 
 	// Apply options to the Controller
 	for _, opt := range options {
-		var err = opt(s)
-		if err != nil {
-			return nil, err
-		}
+		opt(s)
 	}
 
 	return s, nil
 }
 
 func EnableStatusStorage(statusManager StatusManager) ControllerOption {
-	return func(c *Controller) error {
+	return func(c *Controller) {
 		c.statusManager = statusManager
-		return nil
 	}
 }
 
@@ -108,36 +104,34 @@ func (c *Controller) Register(j *job.Job) {
 		return
 	}
 
-	var jobID = c.idGenerator.NextId()
-	c.jobDirectory[j.Name()] = jobID
+	c.jobDirectory[j.Name()] = ""
 
-	c.masterActor.Tell(&job_actor.RegisterJob{JobID: jobID, Job: j, StatusManager: c.statusManager, LockManager: c.lockManager})
+	c.masterActor.Tell(&job_actor.RegisterJob{Job: j, IdGenerator: c.idGenerator, StatusManager: c.statusManager, LockManager: c.lockManager})
 }
 
 // AddTask schedule a run for the job.
 func (c *Controller) Schedule(cron string, jobName string) error {
-	id, ok := c.jobDirectory[jobName]
+	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
 	c.cron.AddFunc(cron, func() {
-		fmt.Print("exec")
-		c.masterActor.Tell(&job_actor.StartJob{JobID: id})
+		c.masterActor.Tell(&job_actor.StartJob{JobName: jobName})
 	})
 
 	return nil
 }
 
 func (c *Controller) Execute(jobName string) error {
-	id, ok := c.jobDirectory[jobName]
+	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
 	}
 
-	c.masterActor.Tell(&job_actor.StartJob{JobID: id})
+	c.masterActor.Tell(&job_actor.StartJob{JobName: jobName})
 	return nil
 }
 
@@ -152,7 +146,7 @@ func (c *Controller) Stop() {
 
 // DisableAll disables execution for all jobs.
 func (c *Controller) DisableAll() error {
-	for jobName, jobID := range c.jobDirectory {
+	for jobName, _ := range c.jobDirectory {
 		var err = c.lockManager.Disable(c.componentName, jobName)
 
 		if err != nil {
@@ -165,7 +159,7 @@ func (c *Controller) DisableAll() error {
 
 // EnableAll enables execution for all jobs.
 func (c *Controller) EnableAll() error {
-	for jobName, jobID := range c.jobDirectory {
+	for jobName, _ := range c.jobDirectory {
 		var err = c.lockManager.Enable(c.componentName, jobName)
 
 		if err != nil {
@@ -178,7 +172,7 @@ func (c *Controller) EnableAll() error {
 
 // Disable execution for the specified job.
 func (c *Controller) Disable(jobName string) error {
-	jobID, ok := c.jobDirectory[jobName]
+	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")
@@ -189,7 +183,7 @@ func (c *Controller) Disable(jobName string) error {
 
 // Enable execution for the specified job.
 func (c *Controller) Enable(jobName string) error {
-	jobID, ok := c.jobDirectory[jobName]
+	_, ok := c.jobDirectory[jobName]
 
 	if !ok {
 		return fmt.Errorf("Unknown job. First register it.")

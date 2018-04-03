@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AsynkronIT/protoactor-go/actor"
 	"github.com/cloudtrust/go-jobs/actor/mock"
@@ -18,7 +19,6 @@ func TestNominalCase(t *testing.T) {
 	var componentName = "componentName"
 	var componentID = "componentID"
 	var jobName = "jobName"
-	var jobID = "id1"
 
 	var wg sync.WaitGroup
 
@@ -26,20 +26,20 @@ func TestNominalCase(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	var mockLockManager = mock.NewLockManager(mockCtrl)
-	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, jobID, 0).Do(func() { wg.Done() }).Return(nil).Times(1)
+	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, gomock.Any(), gomock.Any()).Do(func(string, string, string, string, time.Duration) { wg.Done() }).Return(nil).Times(1)
 
 	var mockStatusManager = mock.NewStatusManager(mockCtrl)
 	mockStatusManager.EXPECT().Start(componentName, jobName).Return(nil).Times(1)
 
 	wg.Add(1)
 
-	var job, _ = job.NewJob("job", job.Steps(successfulStep))
+	var job, _ = job.NewJob(jobName, job.Steps(successfulStep))
 
 	props := BuildMasterActorProps(componentName, componentID, workerPropsBuilder(mockBuilderWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{JobID: "job", Job: job, IdGenerator: nil, LockManager: mockLockManager, StatusManager: mockStatusManager})
-	master.Tell(&StartJob{JobID: "job"})
+	master.Tell(&RegisterJob{Job: job, IdGenerator: &DummyIdGenerator{}, LockManager: mockLockManager, StatusManager: mockStatusManager})
+	master.Tell(&StartJob{JobName: jobName})
 
 	wg.Wait()
 	master.GracefulStop()
@@ -51,6 +51,7 @@ func TestNominalCase(t *testing.T) {
 func TestWorkerRestartWhenPanicOccurs(t *testing.T) {
 	var componentName = "componentName"
 	var componentID = "componentID"
+	var jobName = "jobName"
 
 	var wg sync.WaitGroup
 
@@ -68,13 +69,13 @@ func TestWorkerRestartWhenPanicOccurs(t *testing.T) {
 		return nil, nil
 	}
 
-	var job, _ = job.NewJob("job", job.Steps(mockStep))
+	var job, _ = job.NewJob(jobName, job.Steps(mockStep))
 
 	props := BuildMasterActorProps(componentName, componentID, workerPropsBuilder(mockBuilderFailingWorkerActorProps))
 	master := actor.Spawn(props)
 
-	master.Tell(&RegisterJob{JobID: "job", Job: job, LockManager: nil, StatusManager: nil})
-	master.Tell(&StartJob{JobID: "job"})
+	master.Tell(&RegisterJob{Job: job, LockManager: nil, StatusManager: nil})
+	master.Tell(&StartJob{JobName: jobName})
 
 	wg.Wait()
 	master.GracefulStop()
@@ -104,7 +105,7 @@ type mockWorkerActor struct {
 
 func mockBuilderWorkerActorProps(componentName, componentID string, j *job.Job, idGenerator IdGenerator, l LockManager, s StatusManager, options ...WorkerOption) *actor.Props {
 	return actor.FromProducer(func() actor.Actor {
-		return &mockWorkerActor{job: j, lockManager: l, statusManager: s}
+		return &mockWorkerActor{componentName: componentName, componentID: componentID, idGenerator: idGenerator, job: j, lockManager: l, statusManager: s}
 	})
 }
 
