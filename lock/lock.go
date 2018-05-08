@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	createLocksTblStmt = `CREATE TABLE locks (
+	createLocksTblStmt = `CREATE TABLE IF NOT EXISTS locks (
 		component_name STRING,
 		component_id STRING,
 		job_name STRING,
@@ -34,7 +34,7 @@ const (
 		enabled,
 		status,
 		lock_time)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (component_name, job_name) DO NOTHING`
 	lockStmt = `UPDATE locks SET (
 		component_id,
 		job_id,
@@ -56,25 +56,6 @@ const (
 		WHERE (component_name = $2 AND job_name = $3)`
 	selectLockStmt = `SELECT * FROM locks WHERE (component_name = $1 AND job_name = $2)`
 )
-
-type LockMode int
-
-const (
-	// Local lock
-	Local LockMode = iota
-	// Lock distributed across instances via DB
-	Distributed
-)
-
-func (l LockMode) String() string {
-	var names = []string{"Local", "Distributed"}
-
-	if l < Local || l > Distributed {
-		panic("Unknown lock mode")
-	}
-
-	return names[l]
-}
 
 // Lock is the locking module.
 type Lock struct {
@@ -104,8 +85,7 @@ func New(db DB) *Lock {
 	}
 
 	// Init DB: create table and lock entry for job.
-	_, err := db.Exec(createLocksTblStmt)
-	fmt.Println(err)
+	db.Exec(createLocksTblStmt)
 	return l
 }
 
@@ -139,30 +119,30 @@ func (e *ErrDisabled) Error() string {
 
 // Lock try to reserve and lock the job in the distributed DB. It returns a nil error if the reservation succeeded, and
 // an error if it didn't.
-func (l *Lock) Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error {
-	if err := l.register(componentName, componentID, jobName, jobID); err != nil {
-		return err
-	}
+func (l *Lock) Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error {
+	l.createRowIfNotExists(componentName, jobName)
 
-	if !l.IsEnabled(componentName, jobName) {
-		return &ErrDisabled{componentName: componentName, jobName: jobName}
-	}
-	// If the job exceed the job maxduration, we can force a lock. It means that even if another component has the lock,
-	// we can steal the lock from him.
 	var stmt string
 	{
-		var lck, err = l.getLock(componentName, jobName)
-		if err == nil && time.Now().After(lck.lockTime.Add(jobMaxDuration)) {
+		var lck, err = l.getTable(componentName, jobName)
+		switch {
+		case err != nil:
+			return err
+		case lck.enabled == false:
+			return &ErrDisabled{componentName: componentName, jobName: jobName}
+		case time.Now().After(lck.lockTime.Add(jobMaxDuration)):
+			// If the job exceed the job maxduration, we can force a lock.
 			stmt = forceLockStmt
-		} else {
+		default:
 			stmt = lockStmt
 		}
 	}
 
-	// To obtain distributed lock, update field in cockroach DB.
+	// Try locking.
 	l.db.Exec(stmt, componentID, jobID, time.Now().UTC(), componentName, jobName)
 
-	var lck, err = l.getLock(componentName, jobName)
+	// Check if we got the lock.
+	var lck, err = l.getTable(componentName, jobName)
 	switch {
 	case err != nil:
 		return err
@@ -178,10 +158,12 @@ func (l *Lock) Lock(componentName string, componentID string, jobName string, jo
 
 // Unlock unlocks the lock in the distributed DB. A job can be unlocked it it is disabled.
 // Unlock returns a nil error if the operation succeeded, and an error if it didn't.
-func (l *Lock) Unlock(componentName string, componentID string, jobName string, jobID string) error {
+func (l *Lock) Unlock(componentName, componentID, jobName, jobID string) error {
+	l.createRowIfNotExists(componentName, jobName)
+
 	l.db.Exec(unlockStmt, componentName, componentID, jobName, jobID)
 
-	var lck, err = l.getLock(componentName, jobName)
+	var lck, err = l.getTable(componentName, jobName)
 	switch {
 	case err != nil:
 		return err
@@ -194,8 +176,30 @@ func (l *Lock) Unlock(componentName string, componentID string, jobName string, 
 	}
 }
 
-// getLock returns the whole lock database entry for the current job.
-func (l *Lock) getLock(componentName string, jobName string) (*table, error) {
+// Enable enable the job. It sets the 'enabled' boolean to true for the current job.
+func (l *Lock) Enable(componentName, jobName string) error {
+	l.createRowIfNotExists(componentName, jobName)
+
+	var _, err = l.db.Exec(enableStmt, true, componentName, jobName)
+	if err != nil {
+		return errors.Wrapf(err, "component '%s' could not enable job '%s'", componentName, jobName)
+	}
+	return nil
+}
+
+// Disable disable the job. It sets the 'enabled' boolean to false for the current job.
+func (l *Lock) Disable(componentName, jobName string) error {
+	l.createRowIfNotExists(componentName, jobName)
+
+	var _, err = l.db.Exec(enableStmt, false, componentName, jobName)
+	if err != nil {
+		return errors.Wrapf(err, "component '%s' could not disable job '%s'", componentName, jobName)
+	}
+	return nil
+}
+
+// getTable returns the whole lock database entry for the current job.
+func (l *Lock) getTable(componentName, jobName string) (*table, error) {
 	var row = l.db.QueryRow(selectLockStmt, componentName, jobName)
 	var (
 		cName, cID, jName, jID, status string
@@ -205,7 +209,7 @@ func (l *Lock) getLock(componentName string, jobName string) (*table, error) {
 
 	var err = row.Scan(&cName, &cID, &jName, &jID, &enabled, &status, &lockTime)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not get lock from DB")
+		return nil, errors.Wrap(err, "could not get lock table from DB")
 	}
 
 	return &table{
@@ -219,59 +223,16 @@ func (l *Lock) getLock(componentName string, jobName string) (*table, error) {
 	}, nil
 }
 
-// OwningLock returns true if the component is owning the lock, false otherwise.
-func (l *Lock) OwningLock(componentName string, componentID string, jobName string, jobID string) bool {
-	var lck, err = l.getLock(componentName, jobName)
-	switch {
-	case err != nil:
-		return false
-	case lck.componentName == componentName && lck.componentID == componentID &&
-		lck.jobName == jobName && lck.jobID == jobID &&
-		lck.enabled == true && lck.status == "LOCKED":
-		return true
-	default:
-		return false
-	}
+func (l *Lock) createRowIfNotExists(componentName, jobName string) {
+	l.db.Exec(insertLockStmt, componentName, "", jobName, "", true, "UNLOCKED", time.Time{})
 }
 
-// Enable enable the job. It sets the 'enabled' boolean to true for the current job.
-func (l *Lock) Enable(componentName string, jobName string) error {
-	var _, err = l.db.Exec(enableStmt, true, componentName, jobName)
-	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not enable job '%s'", componentName, jobName)
-	}
+// NoopLocker is a lock that does nothing, it always accept lock requests. It should be used when no lock is required.
+type NoopLocker struct{}
+
+func (l *NoopLocker) Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error {
 	return nil
 }
-
-// Disable disable the job. It sets the 'enabled' boolean to false for the current job.
-func (l *Lock) Disable(componentName string, jobName string) error {
-	var _, err = l.db.Exec(enableStmt, false, componentName, jobName)
-	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not disable job '%s'", componentName, jobName)
-	}
-	return nil
-}
-
-// IsEnabled return true if the job is enabled, false otherwise.
-func (l *Lock) IsEnabled(componentName string, jobName string) bool {
-	var lck, err = l.getLock(componentName, jobName)
-	switch {
-	case err != nil:
-		return false
-	case lck.componentName == componentName && lck.jobName == jobName &&
-		lck.enabled == true:
-		return true
-	default:
-		return false
-	}
-}
-
-func (l *Lock) register(componentName string, componentID string, jobName string, jobID string) error {
-	var _, err = l.db.Exec(insertLockStmt, componentName, componentID, jobName, jobID, true, "UNLOCKED", time.Time{})
-
-	if err != nil {
-		return errors.Wrapf(err, "component '%s' could not be added in job '%s'", componentName, jobName)
-	}
-
-	return nil
-}
+func (l *NoopLocker) Unlock(componentName, componentID, jobName, jobID string) error { return nil }
+func (l *NoopLocker) Enable(componentName, jobName string) error                     { return nil }
+func (l *NoopLocker) Disable(componentName, jobName string) error                    { return nil }

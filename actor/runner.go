@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"runtime"
@@ -21,6 +22,7 @@ type RunnerActor struct {
 	logger Logger
 	jobID  string
 	job    *job.Job
+	ctx    context.Context
 }
 
 type nextStep struct {
@@ -55,15 +57,20 @@ func BuildRunnerActorProps(logger Logger, jobID string, j *job.Job) *actor.Props
 func (state *RunnerActor) Receive(context actor.Context) {
 	switch msg := context.Message().(type) {
 	case *actor.Stopped:
-		context.Parent().Tell(&RunnerStopped{})
+		context.Parent().Tell(&RunnerStopped{state.jobID})
 	case *actor.Started:
-		context.Parent().Tell(&RunnerStarted{})
+		context.Parent().Tell(&RunnerStarted{state.jobID})
 
 		//Initialize map Step Status
 		var stepInfos = make(map[string]string)
 
 		for _, step := range state.job.Steps() {
-			stepInfos[stepName(step)] = "IDdle"
+			stepInfos[stepName(step)] = "Idle"
+		}
+
+		state.ctx = state.job.Context()
+		for _, f := range state.job.Before() {
+			state.ctx = f(state.ctx)
 		}
 
 		i := 0
@@ -74,20 +81,19 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		var infos = msg.stepInfos
 		var previousRes = msg.prevRes
 		infos[stepName(step)] = "Running"
-		context.Parent().Tell(&HeartBeat{state.jobID, infos})
+		context.Parent().Tell(&StepStatus{state.jobID, infos})
 
-		// TODO gérer le passage d'un context en 1° arg
-		var res, err = step(nil, previousRes)
+		var res, err = step(state.ctx, previousRes)
 
 		if err != nil {
 			infos[stepName(step)] = "Failed"
-			context.Parent().Tell(&HeartBeat{state.jobID, infos})
+			context.Parent().Tell(&StepStatus{state.jobID, infos})
 			context.Self().Tell(&failure{msg.job, err, infos})
 			return
 		}
 
 		infos[stepName(step)] = "Completed"
-		context.Parent().Tell(&HeartBeat{state.jobID, infos})
+		context.Parent().Tell(&StepStatus{state.jobID, infos})
 
 		var i = msg.i + 1
 
@@ -113,7 +119,7 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		if msg.job.CleanupStep() != nil {
 			var cleanStep = msg.job.CleanupStep()
 			infos[stepName(cleanStep)] = "Running"
-			context.Parent().Tell(&HeartBeat{state.jobID, infos})
+			context.Parent().Tell(&StepStatus{state.jobID, infos})
 			var res, err = cleanStep(nil)
 
 			if err != nil {

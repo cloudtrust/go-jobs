@@ -1,3 +1,5 @@
+// +build integration
+
 package status
 
 import (
@@ -5,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -15,22 +16,13 @@ import (
 )
 
 var (
-	hostPort    = flag.String("hostport", "172.19.0.2:26257", "cockroach host:port")
-	user        = flag.String("user", "job", "user name")
+	hostPort    = flag.String("hostport", "127.0.0.1:26257", "cockroach host:port")
+	user        = flag.String("user", "cockroach", "user name")
 	db          = flag.String("db", "jobs", "database name")
 	integration = flag.Bool("integration", false, "run the integration tests")
 )
 
-func TestMain(m *testing.M) {
-	flag.Parse()
-	result := m.Run()
-	os.Exit(result)
-}
-
 func TestNewStatus(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -43,7 +35,7 @@ func TestNewStatus(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Equal(t, componentName, tbl.componentName)
 	assert.Equal(t, componentID, tbl.componentID)
@@ -67,9 +59,6 @@ func TestNewStatus(t *testing.T) {
 }
 
 func TestStart(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -82,13 +71,13 @@ func TestStart(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.startTime)
 
 	// Start.
-	assert.Nil(t, s.Start(componentName, jobName))
-	tbl, err = s.GetStatus(componentName, jobName)
+	assert.Nil(t, s.Start(componentName, componentID, jobName))
+	tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 
 	// start is modified.
@@ -116,9 +105,6 @@ func TestStart(t *testing.T) {
 }
 
 func TestGetStartTime(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -131,21 +117,18 @@ func TestGetStartTime(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.startTime)
 
 	// Start.
-	assert.Nil(t, s.Start(componentName, jobName))
-	tbl, err = s.GetStatus(componentName, jobName)
+	assert.Nil(t, s.Start(componentName, componentID, jobName))
+	tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.NotZero(t, tbl.startTime)
 }
 
 func TestUpdate(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -158,14 +141,14 @@ func TestUpdate(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastUpdate)
 	assert.Zero(t, tbl.stepInfos)
 
 	// Update.
-	assert.Nil(t, s.Update(componentName, jobName, map[string]string{"key": "val"}))
-	tbl, err = s.GetStatus(componentName, jobName)
+	assert.Nil(t, s.Update(componentName, componentID, jobName, map[string]string{"key": "val"}))
+	tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 
 	// lastUpdate and stepInfos are modified.
@@ -193,9 +176,6 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestComplete(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -210,7 +190,7 @@ func TestComplete(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastCompletedComponentID)
 	assert.Zero(t, tbl.lastCompletedJobID)
@@ -220,9 +200,9 @@ func TestComplete(t *testing.T) {
 	assert.Zero(t, tbl.lastCompletedMessage)
 
 	// Complete.
-	assert.Nil(t, s.Start(componentName, jobName))
+	assert.Nil(t, s.Start(componentName, componentID, jobName))
 	assert.Nil(t, s.Complete(componentName, componentID, jobName, jobID, stepInfos, msg))
-	tbl, err = s.GetStatus(componentName, jobName)
+	tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 
 	// The fields lastCompleted[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.
@@ -250,9 +230,6 @@ func TestComplete(t *testing.T) {
 }
 
 func TestFail(t *testing.T) {
-	if !*integration {
-		t.Skip()
-	}
 	var db = setupCleanDB(t)
 	rand.Seed(time.Now().UnixNano())
 
@@ -267,7 +244,7 @@ func TestFail(t *testing.T) {
 
 	var s = New(db)
 	s.Register(componentName, componentID, jobName, jobID)
-	var tbl, err = s.GetStatus(componentName, jobName)
+	var tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 	assert.Zero(t, tbl.lastFailedComponentID)
 	assert.Zero(t, tbl.lastFailedJobID)
@@ -277,9 +254,9 @@ func TestFail(t *testing.T) {
 	assert.Zero(t, tbl.lastFailedMessage)
 
 	// Complete.
-	assert.Nil(t, s.Start(componentName, jobName))
+	assert.Nil(t, s.Start(componentName, componentID, jobName))
 	assert.Nil(t, s.Fail(componentName, componentID, jobName, jobID, stepInfos, msg))
-	tbl, err = s.GetStatus(componentName, jobName)
+	tbl, err = s.GetStatus(componentName, componentID, jobName)
 	assert.Nil(t, err)
 
 	// The fields lastFailed[ComponentID, JobID, Start, End, StepInfos, Message] and start time are modified.

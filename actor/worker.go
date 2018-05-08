@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	notInitialized   = 0
-	normalDuration   = 1
-	executionTimeout = 2
-	suicideTimeout   = 3
-	noTimeout        = 4
+	notInitialized int = iota
+	normalDuration
+	executionTimeout
+	suicideTimeout
+	noTimeout
 )
 
 // WorkerActor is the actor responsibles of the execution of a specific job. It checks the locks, persist the status if enabled. Handles timeout and unexpected failures of RunnerActor.
@@ -42,8 +42,8 @@ type Status struct {
 	infos   map[string]string
 }
 
-// Heartbeat message is sent by RunnerActor to give sign of live to the Worker and inform about its current status.
-type HeartBeat struct {
+// StepStatus message is sent by RunnerActor to give sign of live to the Worker and inform about its current status.
+type StepStatus struct {
 	JobID     string
 	StepInfos map[string]string
 }
@@ -100,6 +100,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 			//TODO log lock not succeeded
 			return
 		}
+		state.statusManager.Register(state.componentName, state.componentID, state.job.Name(), jobID)
 
 		applyTimeout(context, state)
 
@@ -107,7 +108,7 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		props := state.runnerPropsBuilder(state.logger, jobID, state.job)
 		context.Spawn(props)
 
-		state.statusManager.Start(state.componentName, state.job.Name())
+		state.statusManager.Start(state.componentName, state.componentID, state.job.Name())
 
 	case *Status:
 		if message.status == Completed {
@@ -119,12 +120,12 @@ func (state *WorkerActor) Receive(context actor.Context) {
 		context.Children()[0].Stop()
 		// unlock will be auto called by stop of runner
 
-	case *HeartBeat:
+	case *StepStatus:
 		state.currentTimeoutType = notInitialized
 		applyTimeout(context, state)
 
 		var s = message.StepInfos
-		state.statusManager.Update(state.componentName, state.job.Name(), s)
+		state.statusManager.Update(state.componentName, state.componentID, state.job.Name(), s)
 
 	case *RunnerStopped:
 		state.lockManager.Unlock(state.componentName, state.componentID, state.job.Name(), message.JobID)

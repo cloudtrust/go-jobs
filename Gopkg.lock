@@ -12,13 +12,13 @@
     "log",
     "mailbox"
   ]
-  revision = "35a7be66c710ff6070c7dfc429ca47dd5164f360"
+  revision = "3992780c0af683deb5ec3746f4ec5845139c6e42"
 
 [[projects]]
   name = "github.com/Workiva/go-datastructures"
   packages = ["queue"]
-  revision = "900cfe0fd2681ca34fa97071e8fcf4f623679104"
-  version = "v1.0.44"
+  revision = "01f52d4880ca171ab1033bb0ee03cda8e0a31cc3"
+  version = "v1.0.46"
 
 [[projects]]
   name = "github.com/davecgh/go-spew"
@@ -70,8 +70,8 @@
 [[projects]]
   name = "github.com/golang/mock"
   packages = ["gomock"]
-  revision = "13f360950a79f5864a972c786a10a50e44b69541"
-  version = "v1.0.0"
+  revision = "c34cdb4725f4c3844d095133c6e40e448b86589b"
+  version = "v1.1.1"
 
 [[projects]]
   branch = "master"
@@ -86,13 +86,13 @@
     ".",
     "oid"
   ]
-  revision = "b2004221932bd6b13167ef654c81cffac36f7537"
+  revision = "d34b9ff171c21ad295489235aec8b6626023cd04"
 
 [[projects]]
   branch = "master"
   name = "github.com/orcaman/concurrent-map"
   packages = ["."]
-  revision = "d4c23bd0e01134806215ffe65ba3fd22ec6721f7"
+  revision = "a05df785d2dcc16310fb997ee1702100d047cfe1"
 
 [[projects]]
   name = "github.com/pkg/errors"
@@ -115,12 +115,18 @@
 [[projects]]
   name = "github.com/victorcoder/dkron"
   packages = ["cron"]
-  revision = "24393e00c0391007bb0e10f1bdc0f270fc262899"
-  version = "v0.9.7"
+  revision = "c1cf8fff41321ca422add70bf1783c309b669cbc"
+  version = "v0.9.8"
+
+[[projects]]
+  branch = "master"
+  name = "golang.org/x/net"
+  packages = ["context"]
+  revision = "640f4622ab692b87c2f3a94265e6f579fe38263d"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "718049d0a3444782786f964239855da7d3803e081a52b2b7c7222f85a54202b0"
+  inputs-digest = "00e36d70d7b2efd73c2af971268c77cbae896e9781b853016c4834a165ac55ac"
   solver-name = "gps-cdcl"
   solver-version = 1

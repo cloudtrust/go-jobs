@@ -1,21 +1,52 @@
 package controller
 
+//go:generate mockgen -destination=./mock/lock_manager.go -package=mock -mock_names=LockManager=LockManager github.com/cloudtrust/go-jobs LockManager
+//go:generate mockgen -destination=./mock/status_manager.go -package=mock -mock_names=StatusManager=StatusManager github.com/cloudtrust/go-jobs StatusManager
+//go:generate mockgen -destination=./mock/id_generator.go -package=mock -mock_names=IDGenerator=IDGenerator github.com/cloudtrust/go-jobs IDGenerator
+//go:generate mockgen -destination=./mock/logger.go -package=mock -mock_names=Logger=Logger github.com/cloudtrust/go-jobs Logger
+
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/cloudtrust/go-jobs/job"
+	"github.com/cloudtrust/go-jobs/mock"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNominalUsage(t *testing.T) {
-	//new, register, schedule, now
-	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)})
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
-	assert.Nil(t, err)
+func TestNominalUsage(t *testing.T) {
+	var mockCtrl = gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	var (
+		componentName = "componentName"
+		jobName       = "jobName"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		id            = rand.Uint64()
+	)
+
+	var mockIDGen = mock.NewIDGenerator(mockCtrl)
+	mockIDGen.EXPECT().NextID().DoAndReturn(func() string {
+		id = id + 1
+		return strconv.FormatUint(id, 10)
+	}).Times(6)
+
+	var mockLockManager = mock.NewLockManager(mockCtrl)
+	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, gomock.Any(), gomock.Any()).Return(nil).Times(6)
+	mockLockManager.EXPECT().Unlock(componentName, componentID, jobName, gomock.Any()).Return(nil).Times(6)
+
+	//new, register, schedule, now
+	var jobController = NewController(componentName, componentID, mockIDGen, mockLockManager)
+
 	var count = 0
 
 	var dummyStep = func(context.Context, interface{}) (interface{}, error) {
@@ -23,7 +54,7 @@ func TestNominalUsage(t *testing.T) {
 		return map[string]string{"message": "done"}, nil
 	}
 
-	var job, _ = job.NewJob("job", job.Steps(dummyStep))
+	var job, _ = job.NewJob(jobName, job.Steps(dummyStep))
 
 	jobController.Register(job)
 	jobController.Register(job)
@@ -38,7 +69,7 @@ func TestNominalUsage(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	assert.Equal(t, countSnapshot, count)
 
-	jobController.Execute("job")
+	jobController.Execute(jobName)
 	time.Sleep(1 * time.Second)
 	assert.Equal(t, countSnapshot+1, count)
 
@@ -48,9 +79,21 @@ func TestNominalUsage(t *testing.T) {
 }
 
 func TestDisabledFunctions(t *testing.T) {
-	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)})
+	var mockCtrl = gomock.NewController(t)
+	defer mockCtrl.Finish()
 
-	assert.Nil(t, err)
+	var (
+		componentName = "componentName"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var mockIDGen = mock.NewIDGenerator(mockCtrl)
+
+	var mockLockManager = mock.NewLockManager(mockCtrl)
+	mockLockManager.EXPECT().Enable(componentName, "job").Return(nil).Times(2)
+	mockLockManager.EXPECT().Disable(componentName, "job").Return(nil).Times(2)
+
+	var jobController = NewController(componentName, componentID, mockIDGen, mockLockManager)
 
 	var dummyStep = func(context.Context, interface{}) (interface{}, error) {
 		return map[string]string{"message": "done"}, nil
@@ -70,142 +113,82 @@ func TestDisabledFunctions(t *testing.T) {
 	assert.Nil(t, jobController.EnableAll())
 	assert.Nil(t, jobController.DisableAll())
 
-	assert.Equal(t, "componentName", jobController.ComponentName())
+	assert.Equal(t, componentName, jobController.ComponentName())
 	assert.NotNil(t, jobController.ComponentID())
-
 }
 
 func TestStatusManagerOption(t *testing.T) {
-	var statusStorage = &DummyStatusManager{}
-	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &DummyLockManager{make(map[string]bool)}, EnableStatusStorage(statusStorage))
+	var mockCtrl = gomock.NewController(t)
+	defer mockCtrl.Finish()
 
-	assert.Nil(t, err)
+	var (
+		componentName = "componentName"
+		jobName       = "jobName"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		id            = strconv.FormatUint(rand.Uint64(), 10)
+		stepInfos     = map[string]string{"github.com/cloudtrust/go-jobs.TestStatusManagerOption.func1": "Completed"}
+		message       = map[string]string{"message": "done"}
+	)
+
+	var mockIDGen = mock.NewIDGenerator(mockCtrl)
+	mockIDGen.EXPECT().NextID().Return(id).Times(1)
+
+	var mockStatusManager = mock.NewStatusManager(mockCtrl)
+	mockStatusManager.EXPECT().Register(componentName, componentID, jobName, id).Times(1)
+	mockStatusManager.EXPECT().Start(componentName, jobName).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Update(componentName, jobName, stepInfos).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Update(componentName, jobName, stepInfos).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Complete(componentName, componentID, jobName, id, stepInfos, message).Return(nil).Times(1)
+
+	var mockLockManager = mock.NewLockManager(mockCtrl)
+	mockLockManager.EXPECT().Lock(componentName, componentID, jobName, id, gomock.Any()).Return(nil).Times(1)
+	mockLockManager.EXPECT().Unlock(componentName, componentID, jobName, id).Return(nil).Times(1)
+
+	var jobController = NewController(componentName, componentID, mockIDGen, mockLockManager, EnableStatusStorage(mockStatusManager))
 
 	var dummyStep = func(context.Context, interface{}) (interface{}, error) {
 		return map[string]string{"message": "done"}, nil
 	}
 
-	var job, _ = job.NewJob("job", job.Steps(dummyStep))
+	var job, _ = job.NewJob(jobName, job.Steps(dummyStep))
 
 	jobController.Register(job)
-	assert.Nil(t, jobController.Execute("job"))
+	assert.Nil(t, jobController.Execute(jobName))
 
 	time.Sleep(1 * time.Second)
-
-	assert.True(t, statusStorage.StartCalled)
-	assert.True(t, statusStorage.UpdateCalled)
-	assert.True(t, statusStorage.CompleteCalled)
-	assert.False(t, statusStorage.FailCalled)
 }
 
-func TestLockError(t *testing.T) {
-	//This test is mainly for coverage
+func TestEnableDisable(t *testing.T) {
+	var mockCtrl = gomock.NewController(t)
+	defer mockCtrl.Finish()
 
-	var jobController, err = NewController("componentName", &DummyIDGenerator{}, &FailLockManager{}, LogWith(&MockLogger{}))
+	var (
+		componentName = "componentName"
+		jobName       = "jobName"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+	)
 
-	assert.Nil(t, err)
+	var mockIDGen = mock.NewIDGenerator(mockCtrl)
+
+	var mockLockManager = mock.NewLockManager(mockCtrl)
+	mockLockManager.EXPECT().Enable(componentName, jobName).Return(fmt.Errorf("fail")).Times(2)
+	mockLockManager.EXPECT().Disable(componentName, jobName).Return(fmt.Errorf("fail")).Times(2)
+
+	var mockLogger = mock.NewLogger(mockCtrl)
+
+	var jobController = NewController(componentName, componentID, mockIDGen, mockLockManager, LogWith(mockLogger))
 
 	var dummyStep = func(context.Context, interface{}) (interface{}, error) {
 		return map[string]string{"message": "done"}, nil
 	}
 
-	var job, _ = job.NewJob("job", job.Steps(dummyStep))
+	var job, _ = job.NewJob(jobName, job.Steps(dummyStep))
 
 	jobController.Register(job)
 
-	assert.NotNil(t, jobController.Enable("job"))
-	assert.NotNil(t, jobController.Disable("job"))
+	assert.NotNil(t, jobController.Enable(jobName))
+	assert.NotNil(t, jobController.Disable(jobName))
 	assert.NotNil(t, jobController.EnableAll())
 	assert.NotNil(t, jobController.DisableAll())
 
-}
-
-/* Utils */
-
-//IDGenerator
-type DummyIDGenerator struct {
-	i int
-}
-
-func (g *DummyIDGenerator) NextID() string {
-	g.i = g.i + 1
-	return strconv.Itoa(g.i)
-}
-
-//LockManager
-type DummyLockManager struct {
-	register map[string]bool
-}
-
-func (l *DummyLockManager) Lock(componentName, componentID, jobName, jobID string, p time.Duration) error {
-	l.register[componentName+componentID+jobName+jobID] = true
-	return nil
-}
-
-func (l *DummyLockManager) Unlock(componentName, componentID, jobName, jobID string) error {
-	l.register[componentName+componentID+jobName+jobID] = false
-	return nil
-}
-
-func (l *DummyLockManager) Disable(componentName, jobName string) error {
-	return nil
-}
-
-func (l *DummyLockManager) Enable(componentName, jobName string) error {
-	return nil
-}
-
-// FailLockManager
-type FailLockManager struct{}
-
-func (l *FailLockManager) Lock(componentName, componentID, jobName, jobID string, p time.Duration) error {
-	return fmt.Errorf("Error")
-}
-
-func (l *FailLockManager) Unlock(componentName, componentID, jobName, jobID string) error {
-	return fmt.Errorf("Error")
-}
-
-func (l *FailLockManager) Disable(componentName, jobName string) error {
-	return fmt.Errorf("Error")
-}
-
-func (l *FailLockManager) Enable(componentName, jobName string) error {
-	return fmt.Errorf("Error")
-}
-
-//StatusManager
-type DummyStatusManager struct {
-	StartCalled    bool
-	UpdateCalled   bool
-	CompleteCalled bool
-	FailCalled     bool
-}
-
-func (s *DummyStatusManager) Start(componentName, jobName string) error {
-	s.StartCalled = true
-	return nil
-}
-
-func (s *DummyStatusManager) Update(componentName, jobName string, stepInfos map[string]string) error {
-	s.UpdateCalled = true
-	return nil
-}
-
-func (s *DummyStatusManager) Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
-	s.CompleteCalled = true
-	return nil
-}
-
-func (s *DummyStatusManager) Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error {
-	s.FailCalled = true
-	return nil
-}
-
-// Logger
-
-type MockLogger struct{}
-
-func (l *MockLogger) Log(...interface{}) error {
-	return nil
 }

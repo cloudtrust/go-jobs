@@ -46,10 +46,11 @@ type LockManager interface {
 
 // StatusManager is the component used to persist information about job executions.
 type StatusManager interface {
-	Start(componentName, jobName string) error
-	Update(componentName, jobName string, stepInfos map[string]string) error
+	Start(componentName, componentID, jobName string) error
+	Update(componentName, componentID, jobName string, stepInfos map[string]string) error
 	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+	Register(componentName, componentID, jobName, jobID string)
 }
 
 // Logger is the Logging interface

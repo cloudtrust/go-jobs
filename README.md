@@ -148,8 +148,9 @@ type Status interface {
 }
 ```
 
-The Start method update the start_time in the DB, 
-GetStatus
+The Start method update the start_time in the DB,
+
+
 name | type | description
 ---- | ----------- | -------------
 component_name | STRING | name of the component (e.g. 'keycloak_bridge')

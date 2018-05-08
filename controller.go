@@ -23,16 +23,17 @@ type DB interface {
 type LockManager interface {
 	Enable(componentName string, jobName string) error
 	Disable(componentName string, jobName string) error
-	Unlock(componentName string, componentID string, jobName string, jobID string) error
-	Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
+	Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error
+	Unlock(componentName, componentID, jobName, jobID string) error
 }
 
 // StatusManager is the component used to persist information about job executions.
 type StatusManager interface {
-	Start(componentName, jobName string) error
-	Update(componentName, jobName string, stepInfos map[string]string) error
+	Start(componentName, componentID, jobName string) error
+	Update(componentName, componentID, jobName string, stepInfos map[string]string) error
 	Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
 	Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
+	Register(componentName, componentID, jobName, jobID string)
 }
 
 // IDGenerator is used to compute a unique identifier for component instance and job execution instance.
@@ -45,6 +46,19 @@ type Logger interface {
 	Log(...interface{}) error
 }
 
+type directory struct {
+	m map[string]struct{}
+}
+
+func (d *directory) add(key string) {
+	d.m[key] = struct{}{}
+}
+
+func (d *directory) contains(key string) bool {
+	var _, ok = d.m[key]
+	return ok
+}
+
 // Controller is the main point of this library.
 type Controller struct {
 	cron          *cron.Cron
@@ -54,7 +68,7 @@ type Controller struct {
 	idGenerator   IDGenerator
 	statusManager StatusManager
 	lockManager   LockManager
-	jobDirectory  map[string]string
+	jobDirectory  *directory
 	logger        Logger
 }
 
@@ -62,25 +76,18 @@ type Controller struct {
 type Option func(*Controller)
 
 // NewController returns a new Controller.
-func NewController(componentName string, idGenerator IDGenerator, lockManager LockManager, options ...Option) (*Controller, error) {
-
-	var componentID = idGenerator.NextID()
-
+func NewController(componentName, componentID string, idGenerator IDGenerator, lockManager LockManager, options ...Option) *Controller {
 	var cron = cron.New()
 	cron.Start()
 
-	var props = job_actor.BuildMasterActorProps(componentName, componentID)
-	var pid = actor.Spawn(props)
-
 	var s = &Controller{
 		cron:          cron,
-		masterActor:   pid,
 		componentName: componentName,
 		componentID:   componentID,
 		idGenerator:   idGenerator,
 		lockManager:   lockManager,
-		statusManager: &status.NopStatusManager{},
-		jobDirectory:  make(map[string]string),
+		statusManager: &status.NoopStatusManager{},
+		jobDirectory:  &directory{make(map[string]struct{})},
 		logger:        log.NewNopLogger(),
 	}
 
@@ -89,7 +96,10 @@ func NewController(componentName string, idGenerator IDGenerator, lockManager Lo
 		opt(s)
 	}
 
-	return s, nil
+	var props = job_actor.BuildMasterActorProps(componentName, componentID, s.logger)
+	s.masterActor = actor.Spawn(props)
+
+	return s
 }
 
 // EnableStatusStorage is an option to provide a component for job execution information storage.
@@ -118,23 +128,20 @@ func (c *Controller) ComponentID() string {
 
 // Register a new job. This method must be called first to be able to Schedule/Execute a job.
 func (c *Controller) Register(j *job.Job) {
-	if _, ok := c.jobDirectory[j.Name()]; ok {
+	if c.jobDirectory.contains(j.Name()) {
 		//already registered
 		return
 	}
 
-	c.jobDirectory[j.Name()] = ""
-
+	c.jobDirectory.add(j.Name())
 	c.masterActor.Tell(&job_actor.RegisterJob{Job: j, IDGenerator: c.idGenerator, StatusManager: c.statusManager, LockManager: c.lockManager})
 }
 
 // Schedule a job execution according to a cron expression.
 // See https://godoc.org/github.com/victorcoder/dkron/cron for cron expression syntax.
 func (c *Controller) Schedule(cron string, jobName string) error {
-	_, ok := c.jobDirectory[jobName]
-
-	if !ok {
-		return fmt.Errorf("Unknown job. First register it")
+	if !c.jobDirectory.contains(jobName) {
+		return fmt.Errorf("job '%v' does not exist", jobName)
 	}
 
 	c.cron.AddFunc(cron, func() {
@@ -146,10 +153,8 @@ func (c *Controller) Schedule(cron string, jobName string) error {
 
 // Execute trigger an immediate job execution. (Lock policy is still applied)
 func (c *Controller) Execute(jobName string) error {
-	_, ok := c.jobDirectory[jobName]
-
-	if !ok {
-		return fmt.Errorf("Unknown job. First register it")
+	if !c.jobDirectory.contains(jobName) {
+		return fmt.Errorf("job '%v' does not exist", jobName)
 	}
 
 	c.masterActor.Tell(&job_actor.StartJob{JobName: jobName})
@@ -168,7 +173,7 @@ func (c *Controller) Stop() {
 
 // DisableAll disables execution for all jobs according to the LockManager policy implementation.
 func (c *Controller) DisableAll() error {
-	for jobName := range c.jobDirectory {
+	for jobName := range c.jobDirectory.m {
 		var err = c.lockManager.Disable(c.componentName, jobName)
 
 		if err != nil {
@@ -180,7 +185,7 @@ func (c *Controller) DisableAll() error {
 
 // EnableAll enables execution for all jobs.
 func (c *Controller) EnableAll() error {
-	for jobName := range c.jobDirectory {
+	for jobName := range c.jobDirectory.m {
 		var err = c.lockManager.Enable(c.componentName, jobName)
 
 		if err != nil {
@@ -192,20 +197,18 @@ func (c *Controller) EnableAll() error {
 
 // Disable execution for the specified job according to the LockManager policy implementation.
 func (c *Controller) Disable(jobName string) error {
-	_, ok := c.jobDirectory[jobName]
-
-	if !ok {
-		return fmt.Errorf("Unknown job. First register it")
+	if !c.jobDirectory.contains(jobName) {
+		return fmt.Errorf("job '%v' does not exist", jobName)
 	}
+
 	return c.lockManager.Disable(c.componentName, jobName)
 }
 
 // Enable execution for the specified job.
 func (c *Controller) Enable(jobName string) error {
-	_, ok := c.jobDirectory[jobName]
-
-	if !ok {
-		return fmt.Errorf("Unknown job. First register it")
+	if !c.jobDirectory.contains(jobName) {
+		return fmt.Errorf("job '%v' does not exist", jobName)
 	}
+
 	return c.lockManager.Enable(c.componentName, jobName)
 }

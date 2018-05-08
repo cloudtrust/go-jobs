@@ -24,11 +24,6 @@
 #   go-tests = true
 #   unused-packages = true
 
-
-[[constraint]]
-  name = "github.com/victorcoder/dkron"
-  version = "0.9.7"
-
 [prune]
   go-tests = true
   unused-packages = true
