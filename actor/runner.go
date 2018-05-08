@@ -68,11 +68,6 @@ func (state *RunnerActor) Receive(context actor.Context) {
 			stepInfos[stepName(step)] = "Idle"
 		}
 
-		state.ctx = state.job.Context()
-		for _, f := range state.job.Before() {
-			state.ctx = f(state.ctx)
-		}
-
 		i := 0
 		context.Self().Tell(&nextStep{state.job, nil, i, stepInfos})
 

@@ -3,7 +3,6 @@ package actor
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"strconv"
 	"sync"
 	"testing"
@@ -170,46 +169,6 @@ func TestErrorHandling(t *testing.T) {
 	expectedOutput := map[string]string{"Reason": "Step failed", "CleanupError": "Cleanup error"}
 	assert.Equal(t, expectedOutput, output)
 
-}
-
-func TestContext(t *testing.T) {
-	var wg sync.WaitGroup
-	var result string
-	var output map[string]string
-	var id = strconv.FormatUint(rand.Uint64(), 10)
-
-	wg.Add(1)
-
-	var b = func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, "correlation_id", id)
-	}
-
-	var step = func(ctx context.Context, x interface{}) (interface{}, error) {
-		assert.Equal(t, ctx.Value("correlation_id"), id)
-		return map[string]string{"message": "done"}, nil
-	}
-
-	var job, _ = job.NewJob("job", job.Steps(step), job.Before(b))
-
-	worker := actor.Spawn(actor.FromFunc(func(c actor.Context) {
-		switch msg := c.Message().(type) {
-		case *actor.Started:
-			props := BuildRunnerActorProps(log.NewNopLogger(), "id1", job)
-			c.Spawn(props)
-		case *Status:
-			result = msg.status
-			output = msg.message
-			wg.Done()
-		}
-
-	}))
-
-	wg.Wait()
-	worker.GracefulStop()
-
-	assert.Equal(t, Completed, result)
-	var expectedOutput = map[string]string{"message": "done"}
-	assert.Equal(t, expectedOutput, output)
 }
 
 /* Utils */

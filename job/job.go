@@ -9,10 +9,6 @@ import (
 // Step is a unit of work of a Job.
 type Step func(context.Context, interface{}) (interface{}, error)
 
-// StepFunc is executed before the first job step. It can put information
-// in the context that will bi passed to each step.
-type StepFunc func(context.Context) context.Context
-
 // CleanupStep is the unit of work to execute in case of failure
 type CleanupStep func(context.Context) (map[string]string, error)
 
@@ -35,12 +31,6 @@ type Job struct {
 	// safeguard againt infinite loop. If exceeded, the whole application can be killed.
 	// By default there is no timeout.
 	suicideTimeout time.Duration
-
-	// before are executed on the Job before the first step.
-	before []StepFunc
-
-	// context passed to each step
-	ctx context.Context
 }
 
 // Option is used to configure the Job. It takes on argument: the Job we are operating on.
@@ -67,7 +57,6 @@ func NewJob(name string, steps []Step, options ...Option) (*Job, error) {
 		cleanupStep:      nil,
 		executionTimeout: 0,
 		normalDuration:   0,
-		ctx:              context.Background(),
 	}
 
 	// Apply options to the job
@@ -105,25 +94,10 @@ func (j *Job) SuicideTimeout() time.Duration {
 	return j.suicideTimeout
 }
 
-func (j *Job) Before() []StepFunc {
-	return j.before
-}
-
-func (j *Job) Context() context.Context {
-	return j.ctx
-}
-
 // Cleanup is the option used to set a step of cleanup
 func Cleanup(s CleanupStep) Option {
 	return func(j *Job) {
 		j.cleanupStep = s
-	}
-}
-
-// WithContext is the option used to set a context that is passed to each job step
-func WithContext(ctx context.Context) Option {
-	return func(j *Job) {
-		j.ctx = ctx
 	}
 }
 
@@ -145,12 +119,5 @@ func ExecutionTimeout(d time.Duration) Option {
 func SuicideTimeout(d time.Duration) Option {
 	return func(j *Job) {
 		j.suicideTimeout = d
-	}
-}
-
-// Before functions are executed on the job before the first step.
-func Before(before ...StepFunc) Option {
-	return func(j *Job) {
-		j.before = append(j.before, before...)
 	}
 }

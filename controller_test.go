@@ -76,6 +76,8 @@ func TestNominalUsage(t *testing.T) {
 	jobController.Start()
 	time.Sleep(2 * time.Second)
 	assert.True(t, count > countSnapshot+1)
+
+	jobController.Stop()
 }
 
 func TestDisabledFunctions(t *testing.T) {
@@ -135,9 +137,9 @@ func TestStatusManagerOption(t *testing.T) {
 
 	var mockStatusManager = mock.NewStatusManager(mockCtrl)
 	mockStatusManager.EXPECT().Register(componentName, componentID, jobName, id).Times(1)
-	mockStatusManager.EXPECT().Start(componentName, jobName).Return(nil).Times(1)
-	mockStatusManager.EXPECT().Update(componentName, jobName, stepInfos).Return(nil).Times(1)
-	mockStatusManager.EXPECT().Update(componentName, jobName, stepInfos).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Start(componentName, componentID, jobName).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Update(componentName, componentID, jobName, stepInfos).Return(nil).Times(1)
+	mockStatusManager.EXPECT().Update(componentName, componentID, jobName, stepInfos).Return(nil).Times(1)
 	mockStatusManager.EXPECT().Complete(componentName, componentID, jobName, id, stepInfos, message).Return(nil).Times(1)
 
 	var mockLockManager = mock.NewLockManager(mockCtrl)
