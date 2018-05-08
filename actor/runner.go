@@ -22,7 +22,6 @@ type RunnerActor struct {
 	logger Logger
 	jobID  string
 	job    *job.Job
-	ctx    context.Context
 }
 
 type nextStep struct {
@@ -54,12 +53,12 @@ func BuildRunnerActorProps(logger Logger, jobID string, j *job.Job) *actor.Props
 }
 
 // Receive is the implementation of RunnerActor's behavior
-func (state *RunnerActor) Receive(context actor.Context) {
-	switch msg := context.Message().(type) {
+func (state *RunnerActor) Receive(ctx actor.Context) {
+	switch msg := ctx.Message().(type) {
 	case *actor.Stopped:
-		context.Parent().Tell(&RunnerStopped{state.jobID})
+		ctx.Parent().Tell(&RunnerStopped{state.jobID})
 	case *actor.Started:
-		context.Parent().Tell(&RunnerStarted{state.jobID})
+		ctx.Parent().Tell(&RunnerStarted{state.jobID})
 
 		//Initialize map Step Status
 		var stepInfos = make(map[string]string)
@@ -69,43 +68,43 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		}
 
 		i := 0
-		context.Self().Tell(&nextStep{state.job, nil, i, stepInfos})
+		ctx.Self().Tell(&nextStep{state.job, nil, i, stepInfos})
 
 	case *nextStep:
 		var step = msg.job.Steps()[msg.i]
 		var infos = msg.stepInfos
 		var previousRes = msg.prevRes
 		infos[stepName(step)] = "Running"
-		context.Parent().Tell(&StepStatus{state.jobID, infos})
+		ctx.Parent().Tell(&StepStatus{state.jobID, infos})
 
-		var res, err = step(state.ctx, previousRes)
+		var res, err = step(context.WithValue(context.Background(), "correlation_id", state.jobID), previousRes)
 
 		if err != nil {
 			infos[stepName(step)] = "Failed"
-			context.Parent().Tell(&StepStatus{state.jobID, infos})
-			context.Self().Tell(&failure{msg.job, err, infos})
+			ctx.Parent().Tell(&StepStatus{state.jobID, infos})
+			ctx.Self().Tell(&failure{msg.job, err, infos})
 			return
 		}
 
 		infos[stepName(step)] = "Completed"
-		context.Parent().Tell(&StepStatus{state.jobID, infos})
+		ctx.Parent().Tell(&StepStatus{state.jobID, infos})
 
 		var i = msg.i + 1
 
 		if i >= len(msg.job.Steps()) {
 			var mapRes, ok = res.(map[string]string)
 			if ok {
-				context.Self().Tell(&success{msg.job, mapRes, infos})
+				ctx.Self().Tell(&success{msg.job, mapRes, infos})
 			} else {
 				err := errors.New("Invalid type result for last step")
-				context.Self().Tell(&failure{msg.job, err, infos})
+				ctx.Self().Tell(&failure{msg.job, err, infos})
 			}
 			return
 		}
 
 		// TODO transamettre val (le retour de step) dans le message
 		// Ajouter val au context car on veut un contexte tout le temps
-		context.Self().Tell(&nextStep{msg.job, res, i, infos})
+		ctx.Self().Tell(&nextStep{msg.job, res, i, infos})
 	case *failure:
 		var result = map[string]string{"Reason": msg.err.Error()}
 		var infos = msg.stepInfos
@@ -114,7 +113,7 @@ func (state *RunnerActor) Receive(context actor.Context) {
 		if msg.job.CleanupStep() != nil {
 			var cleanStep = msg.job.CleanupStep()
 			infos[stepName(cleanStep)] = "Running"
-			context.Parent().Tell(&StepStatus{state.jobID, infos})
+			ctx.Parent().Tell(&StepStatus{state.jobID, infos})
 			var res, err = cleanStep(nil)
 
 			if err != nil {
@@ -129,10 +128,10 @@ func (state *RunnerActor) Receive(context actor.Context) {
 			}
 		}
 
-		context.Parent().Tell(&Status{state.jobID, Failed, result, infos})
+		ctx.Parent().Tell(&Status{state.jobID, Failed, result, infos})
 
 	case *success:
-		context.Parent().Tell(&Status{state.jobID, Completed, msg.result, msg.stepInfos})
+		ctx.Parent().Tell(&Status{state.jobID, Completed, msg.result, msg.stepInfos})
 	}
 }
 
