@@ -8,69 +8,14 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	createTblStmt = `CREATE TABLE status (
-		component_name STRING,
-		component_id STRING,
-		job_name STRING,
-		job_id STRING,
-		start_time TIMESTAMPTZ,
-		last_update TIMESTAMPTZ,
-		step_infos STRING,
-		last_completed_component_id STRING,
-		last_completed_job_id STRING,
-		last_completed_start_time TIMESTAMPTZ,
-		last_completed_end_time TIMESTAMPTZ,
-		last_completed_step_infos STRING,
-		last_completed_message STRING,
-		last_failed_component_id STRING,
-		last_failed_job_id STRING,
-		last_failed_start_time TIMESTAMPTZ,
-		last_failed_end_time TIMESTAMPTZ,
-		last_failed_step_infos STRING,
-		last_failed_message STRING,
-		PRIMARY KEY (component_name, job_name))`
-	insertStmt = `INSERT INTO status (
-		component_name,
-		component_id,
-		job_name,
-		job_id,
-		start_time,
-		last_update,
-		step_infos,
-		last_completed_component_id,
-		last_completed_job_id,
-		last_completed_start_time,
-		last_completed_end_time,
-		last_completed_step_infos,
-		last_completed_message,
-		last_failed_component_id,
-		last_failed_job_id,
-		last_failed_start_time,
-		last_failed_end_time,
-		last_failed_step_infos,
-		last_failed_message)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
-	selectStmt      = `SELECT * FROM status WHERE (component_name = $1 AND job_name = $2)`
-	selectCmpStmt   = `SELECT * FROM status WHERE (component_name = $1 AND component_id = $2 AND job_name = $3)`
-	startStmt       = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND job_name = $3)`
-	startCmpStmt    = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND component_id = $3 AND job_name = $4)`
-	updateStmt      = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND job_name = $4)`
-	updateCmpStmt   = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND component_id = $4 AND job_name = $5)`
-	completeStmt    = `UPDATE status SET (last_completed_component_id, last_completed_job_id, last_completed_start_time, last_completed_end_time, last_completed_step_infos, last_completed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
-	completeCmpStmt = `UPDATE status SET (last_completed_component_id, last_completed_job_id, last_completed_start_time, last_completed_end_time, last_completed_step_infos, last_completed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND component_id = $7 AND job_name = $8)`
-	failStmt        = `UPDATE status SET (last_failed_component_id, last_failed_job_id, last_failed_start_time, last_failed_end_time, last_failed_step_infos, last_failed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
-	failCmpStmt     = `UPDATE status SET (last_failed_component_id, last_failed_job_id, last_failed_start_time, last_failed_end_time, last_failed_step_infos, last_failed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND component_id = $7 AND job_name = $8)`
-)
-
 // Status is the status module.
 type Status struct {
-	db           DB
+	s            Storage
 	perComponent bool
 }
 
-// DB is the interface of the DB.
-type DB interface {
+// Storage is the interface of the storage.
+type Storage interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
@@ -98,46 +43,88 @@ type Table struct {
 	lastFailedMessage        string
 }
 
+const createTblStmt = `CREATE TABLE status (
+	component_name STRING,
+	component_id STRING,
+	job_name STRING,
+	job_id STRING,
+	start_time TIMESTAMPTZ,
+	last_update TIMESTAMPTZ,
+	step_infos STRING,
+	last_completed_component_id STRING,
+	last_completed_job_id STRING,
+	last_completed_start_time TIMESTAMPTZ,
+	last_completed_end_time TIMESTAMPTZ,
+	last_completed_step_infos STRING,
+	last_completed_message STRING,
+	last_failed_component_id STRING,
+	last_failed_job_id STRING,
+	last_failed_start_time TIMESTAMPTZ,
+	last_failed_end_time TIMESTAMPTZ,
+	last_failed_step_infos STRING,
+	last_failed_message STRING,
+	PRIMARY KEY (component_name, job_name))`
+
 // New returns a new status module.
-func New(db DB) *Status {
-	var s = &Status{
-		db:           db,
+func New(s Storage) *Status {
+	// Init DB: create table and status entry for job.
+	s.Exec(createTblStmt)
+
+	return &Status{
+		s:            s,
 		perComponent: false,
 	}
-
-	// Init DB: create table and status entry for job.
-	db.Exec(createTblStmt)
-
-	return s
 }
 
 // NewComponentStatus returns a new status module with status information that are per component.
 // Two instances of the component will each have a status entry in the DB.
-func NewComponentStatus(db DB) *Status {
-	var s = &Status{
-		db:           db,
+func NewComponentStatus(s Storage) *Status {
+	// Init DB: create table and status entry for job.
+	s.Exec(createTblStmt)
+
+	return &Status{
+		s:            s,
 		perComponent: true,
 	}
-
-	// Init DB: create table and status entry for job.
-	db.Exec(createTblStmt)
-
-	return s
 }
 
 // Register register the job in the DB.
 func (s *Status) Register(componentName, componentID, jobName, jobID string) {
+	const insertStmt = `INSERT INTO status (
+		component_name,
+		component_id,
+		job_name,
+		job_id,
+		start_time,
+		last_update,
+		step_infos,
+		last_completed_component_id,
+		last_completed_job_id,
+		last_completed_start_time,
+		last_completed_end_time,
+		last_completed_step_infos,
+		last_completed_message,
+		last_failed_component_id,
+		last_failed_job_id,
+		last_failed_start_time,
+		last_failed_end_time,
+		last_failed_step_infos,
+		last_failed_message)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+
 	var t = time.Time{}
-	s.db.Exec(insertStmt, componentName, componentID, jobName, jobID, t, t, "", "", "", t, t, "", "", "", "", t, t, "", "")
+	s.s.Exec(insertStmt, componentName, componentID, jobName, jobID, t, t, "", "", "", t, t, "", "", "", "", t, t, "", "")
 }
 
 // Start update the job start time in the DB.
 func (s *Status) Start(componentName, componentID, jobName string) error {
 	var err error
 	if s.perComponent {
-		_, err = s.db.Exec(startCmpStmt, time.Now().UTC(), componentName, componentID, jobName)
+		const startCmpStmt = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND component_id = $3 AND job_name = $4)`
+		_, err = s.s.Exec(startCmpStmt, time.Now().UTC(), componentName, componentID, jobName)
 	} else {
-		_, err = s.db.Exec(startStmt, time.Now().UTC(), componentName, jobName)
+		const startStmt = `UPDATE status SET (start_time) = ($1) WHERE (component_name = $2 AND job_name = $3)`
+		_, err = s.s.Exec(startStmt, time.Now().UTC(), componentName, jobName)
 	}
 	return err
 }
@@ -147,9 +134,11 @@ func (s *Status) GetStatus(componentName, componentID, jobName string) (*Table, 
 	var row *sql.Row
 
 	if s.perComponent {
-		row = s.db.QueryRow(selectCmpStmt, componentName, componentID, jobName)
+		const selectCmpStmt = `SELECT * FROM status WHERE (component_name = $1 AND component_id = $2 AND job_name = $3)`
+		row = s.s.QueryRow(selectCmpStmt, componentName, componentID, jobName)
 	} else {
-		row = s.db.QueryRow(selectStmt, componentName, jobName)
+		const selectStmt = `SELECT * FROM status WHERE (component_name = $1 AND job_name = $2)`
+		row = s.s.QueryRow(selectStmt, componentName, jobName)
 	}
 
 	var (
@@ -211,9 +200,11 @@ func (s *Status) Update(componentName, componentID, jobName string, stepInfos ma
 
 	var err error
 	if s.perComponent {
-		_, err = s.db.Exec(updateCmpStmt, time.Now().UTC(), string(infos), componentName, componentID, jobName)
+		const updateCmpStmt = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND component_id = $4 AND job_name = $5)`
+		_, err = s.s.Exec(updateCmpStmt, time.Now().UTC(), string(infos), componentName, componentID, jobName)
 	} else {
-		_, err = s.db.Exec(updateStmt, time.Now().UTC(), string(infos), componentName, jobName)
+		const updateStmt = `UPDATE status SET (last_update, step_infos) = ($1, $2) WHERE (component_name = $3 AND job_name = $4)`
+		_, err = s.s.Exec(updateStmt, time.Now().UTC(), string(infos), componentName, jobName)
 	}
 
 	if err != nil {
@@ -245,9 +236,11 @@ func (s *Status) Complete(componentName, componentID, jobName, jobID string, ste
 
 	var err error
 	if s.perComponent {
-		_, err = s.db.Exec(completeCmpStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, componentID, jobName)
+		const completeCmpStmt = `UPDATE status SET (last_completed_component_id, last_completed_job_id, last_completed_start_time, last_completed_end_time, last_completed_step_infos, last_completed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND component_id = $7 AND job_name = $8)`
+		_, err = s.s.Exec(completeCmpStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, componentID, jobName)
 	} else {
-		_, err = s.db.Exec(completeStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
+		const completeStmt = `UPDATE status SET (last_completed_component_id, last_completed_job_id, last_completed_start_time, last_completed_end_time, last_completed_step_infos, last_completed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
+		_, err = s.s.Exec(completeStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
 	}
 
 	if err != nil {
@@ -278,9 +271,11 @@ func (s *Status) Fail(componentName, componentID, jobName, jobID string, stepInf
 
 	var err error
 	if s.perComponent {
-		_, err = s.db.Exec(failCmpStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, componentID, jobName)
+		const failCmpStmt = `UPDATE status SET (last_failed_component_id, last_failed_job_id, last_failed_start_time, last_failed_end_time, last_failed_step_infos, last_failed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND component_id = $7 AND job_name = $8)`
+		_, err = s.s.Exec(failCmpStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, componentID, jobName)
 	} else {
-		_, err = s.db.Exec(failStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
+		const failStmt = `UPDATE status SET (last_failed_component_id, last_failed_job_id, last_failed_start_time, last_failed_end_time, last_failed_step_infos, last_failed_message) = ($1, $2, status.start_time, $3, $4, $5) WHERE (component_name = $6 AND job_name = $7)`
+		_, err = s.s.Exec(failStmt, componentID, jobID, time.Now().UTC(), string(infos), string(msg), componentName, jobName)
 	}
 
 	if err != nil {

@@ -16,10 +16,9 @@ import (
 )
 
 var (
-	hostPort    = flag.String("hostport", "172.18.0.2:26257", "cockroach host:port")
-	user        = flag.String("user", "cockroach", "user name")
-	db          = flag.String("db", "jobs", "database name")
-	integration = flag.Bool("integration", false, "run the integration tests")
+	hostPort = flag.String("hostport", "127.0.0.1:26258", "cockroach host:port")
+	user     = flag.String("user", "cockroach8", "user name")
+	db       = flag.String("db", "cockroach8", "database name")
 )
 
 func init() {
@@ -264,6 +263,31 @@ func TestForceLock(t *testing.T) {
 	// l2 locks after the lock max duration exceed.
 	time.Sleep(d)
 	assert.Nil(t, l2.Lock(componentName, c2ID, jobName, j2ID, d))
+}
+
+func TestNoopLocker(t *testing.T) {
+	var (
+		componentName  = "cmp"
+		componentID    = strconv.FormatUint(rand.Uint64(), 10)
+		jobName        = "job"
+		jobID          = strconv.FormatUint(rand.Uint64(), 10)
+		jobMaxDuration = 1 * time.Second
+	)
+
+	var l = &NoopLocker{}
+	assert.Nil(t, l.Lock(componentName, componentID, jobName, jobID, jobMaxDuration))
+	assert.Nil(t, l.Unlock(componentName, componentID, jobName, jobID))
+	assert.Nil(t, l.Enable(componentName, jobName))
+	assert.Nil(t, l.Disable(componentName, jobName))
+}
+
+func TestLocalLock(t *testing.T) {
+	var l = NewLocalLock()
+
+	assert.Nil(t, l.Lock())
+	assert.NotNil(t, l.Lock())
+	assert.Nil(t, l.Unlock())
+	assert.Nil(t, l.Unlock())
 }
 
 func enabled(t *testing.T, l *Lock, componentName, jobName string) bool {

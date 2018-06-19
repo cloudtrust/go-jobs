@@ -13,8 +13,8 @@ import (
 	"github.com/victorcoder/dkron/cron"
 )
 
-// DB is the interface of the DB.
-type DB interface {
+// Storage is the interface of the storage.
+type Storage interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	QueryRow(query string, args ...interface{}) *sql.Row
 }

@@ -1,4 +1,4 @@
-# go-jobs
+# go-jobs [![Build Status][ci-img]][ci] [![Coverage Status][cov-img]][cov] [![GoDoc][godoc-img]][godoc] [![Go Report Card][report-img]][report]
 
 Library written in Go for running jobs in distributed environment.
 
@@ -8,7 +8,7 @@ Library written in Go for running jobs in distributed environment.
 
 Split the business logic of the job in steps.
 
-Note: Steps should be not too long to execute as a heartbeat signal is sent only at the end of the execution of it.
+Note: Steps should be not too long to execute as a status signal is sent only at the end of the execution of it.
 
 ```golang
 func step1(){
@@ -36,21 +36,25 @@ If NormalTimeout is exceeded, a log entry is added. Once ExecutionTimeout is exc
 ### Create a Controller
 
 ```golang
-var controller, err = NewController("componentName", idGenerator, lockManager) (*Controller, error) {
+var (
+    // name of the controller instance
+    componentName string = ...
+    // unique identifier of the controller instance
+    componentID string = ...
+    // Unique IDs generator. In a distributed environment usage of our Flaki project is advised.
+    idGenerator IDGenerator = ...
+    // Lock strategy. The library provides a lock implementation for distributed environments.
+    lockManager LockManager = ...
 )
+var controller, err = NewController(componentName, componentID, idGenerator, lockManager)
 if err != nil {
     // handle error
 }
 ```
 
-`componentName` is the name of the controller instance.
-`idGenerator` is a generator of unique ID. In a distributed environment usage of our Flaki project is advised.
-`lockManager` is an implementation of a Lock strategy. The library provides a lock implementation for distributed environments.
-
 Use `EnableStatusManager(statusManager)` can be specified to store some informations about the job execution. An implementation is provided by this library in status package.
 
 Use `WithLogger(logger)` to provide a logger.
-
 
 ### Register and schedule the job
 
@@ -59,7 +63,7 @@ controller.Register(job)
 controller.schedule("*/10 * * * *", job.Name())
 ```
 
-Note: the compatible Cron syntax can be found at https://godoc.org/github.com/victorcoder/dkron/cron
+Note: the compatible Cron syntax can be found [here](https://godoc.org/github.com/victorcoder/dkron/cron).
 
 A job must be registered to be able to perform execute/disable/schedule it.
 
@@ -77,131 +81,145 @@ controller.Disable(job.Name())
 
 ### Lock
 
-With the distributed lock, we can ensure that a job is executed only once at a time. Let's imagine that there is 3 instances of "keycloak-bridge" and that we want to exectute a backup of the keycloak configuration. We want that only one instance of the bridge executes the backup job.
+With the distributed lock, we can ensure that a job is executed only once at a time. Let's imagine that there is 3 instances of "keycloak-bridge" and that we want to execute a backup of the keycloak configuration. We want that only one instance of the bridge executes the backup job.
 
 Lock API:
-Each lock has two states that can be represented by the booleans lock and enable. The former is the lock status (locked or unlocked) and the latter is true if the lock is enable, false otherwise. When a lock is disabled the components won't be able to acquire it even it is unlocked. We need this to disable jobs on demand, for example when we want to do an upgrade we don't want parasitic jobs to be executed concurrently. In that case we can simply disable those jobs.
+Each lock has two states that can be represented by the booleans lock and enable. The former is the lock status (locked or unlocked) and the latter is true if the lock is enable, false otherwise. When a lock is disabled the components won't be able to acquire it even when it is unlocked. We need this to disable jobs on demand, for example when we want to do an upgrade we don't want parasitic jobs to be executed concurrently. In that case we can simply disable those jobs.
 
 method | description
 ------ | -----------
 Lock | Each job starts with a reservation phase, where the component try to acquire the lock using this method. Only one will acquire the lock and is going to the job execution phase. The others aborts.
 Unlock | Releases the lock
-OwningLock() | Return true if we are owning the lock, false otherwise
 Enable() | Enable the lock. If the lock is disabled, the Lock method will never acquire the Lock.
 Disable() | Disable the lock. Here we disable the possibility to acquire the lock, not to confund with unlock.
-IsEnabled() | Return true if the lock is enabled, false otherwise.
 
 ```go
-func New(db DB) *Lock
-
-func (l *Lock) Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error {
-    ...
-}
-
-func (l *Lock) Lock(componentName, componentID, jobName, jobID string) error {
-    ...
-}
-
 type Lock interface {
-    Enable(componentName string, jobName string) error
-    Disable(componentName string, jobName string) error
-    IsEnabled(componentName string, jobName string) bool
-    Unlock(componentName string, componentID string, jobName string, jobID string) error
-    Lock(componentName string, componentID string, jobName string, jobID string, jobMaxDuration time.Duration) error
-    OwningLock(componentName string, componentID string, jobName string, jobID string) bool
+    Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error
+    Unlock(componentName, componentID, jobName, jobID string) error
+    Enable(componentName, jobName string) error
+    Disable(componentName, jobName string) error
 }
 ```
 
-name | type | description
---- | ----------- | -------------
-component_name | STRING | name of the component (e.g. 'keycloak_bridge')
-component_id | STRING | component ID, obtained from flaki at startup. This ID can differentiate two instances of the same component.
-job_name | STRING | name of the job
-job_id | STRING | job ID, obtained from flaki when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
-enabled | BOOL | use to disable jobs, for example during an upgrade we may want to disable some jobs.
-status | STRING | status of the job ('RUNNING', 'IDLE')
-lock_time | TIMESTAMP | when the lock was acquired
+name | description
+--- | ---
+componentName | name of the component (e.g. 'keycloak_bridge').
+componentID | component ID, obtained at startup. This ID can differentiate two instances of the same component.
+jobName | name of the job.
+jobID | job ID, obtained when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
+jobMaxDuration | max duration of the job. It is use to detect blocked jobs.
 
 ### Status
 
+The status of the different jobs are stored in DB. For each job, several pieces of information are tracked:
+
+* component that executes the job
+* start time
+* last updated
+* information about the job steps
+* information about the last successful job
+  * component that did it
+  * start/finish time
+  * steps information
+  * completion message
+* information about the last unsuccessful job
+  * component that did it
+  * start/finish time
+  * steps information
+  * completion message
+
 method | description
 ------ | -----------
+Register | Register the job, i.e. create an entry in the status table.
 Start | Updates the job's start time in the DB.
-GetStartTime() | Get the job's start time
-GetStatus() | Return the whole DB entry for the current job.
 Update | Updates the job status, with infos about the steps.
-Complete | Updates the last_completed_* columns in the DB. It happens when a job is successfull
-Fail | Updates the last_failed_* columns in the DB. It happens when a job failed
+Complete | Complete is called when the job finish successfully. It updates info about the job completion.
+Fail | Fail is called when the job fails. It updates info about the failure cause.
+GetStatus | Return the whole DB entry for the current job.
+GetStartTime | Get the job's start time
 
 ```go
-func New(db DB, componentName, componentID, jobName, jobID string) *Status {
-    ...
-}
-
 type Status interface {
-    Start(componentName, jobName string) error
-    Update(componentName, jobName string, stepInfos map[string]string) error
+    Register(componentName, componentID, jobName, jobID string)
+    Start(componentName, componentID, jobName string) error
+    Update(componentName, componentID, jobName string, stepInfos map[string]string) error
     Complete(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
     Fail(componentName, componentID, jobName, jobID string, stepInfos, message map[string]string) error
-    GetStatus(componentName, jobName string) (*Table, error)
-    GetStartTime(componentName, jobName string) (time.Time, error)
+    GetStatus(componentName, componentID, jobName string) (*Table, error)
+    GetStartTime(componentName, componentID, jobName string) (time.Time, error)
 }
 ```
 
-The Start method update the start_time in the DB,
-
-
-name | type | description
----- | ----------- | -------------
-component_name | STRING | name of the component (e.g. 'keycloak_bridge')
-component_id | STRING | component ID, obtained from flaki at startup. This ID can differentiate two instances of the same component.
-job_name | STRING | name of the job
-job_id | STRING | job ID, obtained from flaki when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
-start_time | TIMESTAMP | when the job started
-last_update | TIMESTAMP | when the step_infos field was last updated. If this field was not updated for a long time, we can guess that the job crashed.
-step_infos | STRING | information on the current execution, updated regularly.
-message | STRING | message is updated with information about the job execution when the job finishes.
-| |
-last_completed_component_id | STRING | id of the component that last successfully completed the job
-last_completed_job_id | STRING | id of the last successfully completed job
-last_completed_start_time | TIMESTAMP | when the last successfully completed job started
-last_completed_end_time | TIMESTAMP | when the last successfully completed job ended
-last_completed_step_infos | STRING | steps informations for the last successfull job
-last_completed_message | STRING | information about the last successfull job
-| |
-last_failed_component_id | STRING |  id of the component that last unsuccessfully completed the job
-last_failed_job_id | STRING | id of the last unsuccessfully completed job
-last_failed_start_time | TIMESTAMP | when the last unsuccessfully completed job started
-last_failed_end_time | TIMESTAMP | when the last unsuccessfully completed job ended
-last_failed_step_infos | STRING | steps informations for the last unsuccessfull job
-last_failed_message | STRING | information about the last unsuccessfull job
+name | description
+--- | ---
+componentName | name of the component (e.g. 'keycloak_bridge').
+componentID | component ID, obtained at startup. This ID can differentiate two instances of the same component.
+jobName | name of the job.
+jobID | job ID, obtained when the job starts. The ID is associated with one job instance, so if a component exectute a job several times, e.g. a daily backup, each execution will have its own ID.
+stepInfos | contains information about the steps execution.
+message | contains information about the job completion.
 
 ## Implementation details
 
-This library uses model actor via the protoactor-go (links to the github project) implementation.
+This library uses model actor via the [protoactor-go](https://github.com/AsynkronIT/protoactor-go) implementation.
 
 The library leverage the actor model using protoactor-go.
 The following actors are defined for each Controller instance:
-* MasterActor
-    * One instance spwan during Controller's creation
-    * Handles unexpected failures of WorkerActor
-* WorkerActor
-    * One instance for each registered job
-    * Handles unexpected failures of RunnerActor
-    * Check the lock status
-    * Persist job statistics and outputs
-* RunnerActor
-    * Spawn on demand by WorkerActor
-    * Execute the job and inform its parent (the worker) about current and final status.
 
-![](flow.jpg)
+* MasterActor
+  * One instance spwan during Controller's creation
+  * Handles unexpected failures of WorkerActor
+* WorkerActor
+  * One instance for each registered job
+  * Handles unexpected failures of RunnerActor
+  * Check the lock status
+  * Persist job statistics and outputs
+* RunnerActor
+  * Spawn on demand by WorkerActor
+  * Execute the job and inform its parent (the worker) about current and final status.
+
+![flow](docs/flow.jpg)
 
 ### Unexpected Failure & Timeout Handling
 
 If the RunnerActor fails, WorkerActor restart a new instance of the RunnerActor and launch the execution again.
-After the execution of each steps of the Job, a Heartbeat message is sent to the Worker. If no Heartbeat message is received for a duration exceeding the ExecutionTimeout, the Worker orders to the Runner to stop. If the runner is still not stopped after the SuicideTimeout, the runner is very likely in an infinite loop, then the Worker panics.
+After the execution of each steps of the Job, a status message is sent to the Worker. If no status message is received for a duration exceeding the ExecutionTimeout, the Worker orders to the Runner to stop. If the runner is still not stopped after the SuicideTimeout, the runner is very likely in an infinite loop, then the Worker panics.
 If the WorkerActor fails, MasterActor is in charge of error handling. It will try to restart the worker unless the cause of the error is a panic due to SuicideTimeout. In this specific case, the MasterActor panic too in order to crash the whole application.
 
 ### actor state machine
 
-![](messageFlow.png)
+![message flow](docs/messageFlow.png)
+
+## Tests
+
+The unit tests don't cover:
+
+* lock (go-jobs/lock)
+* status (go-jobs/status)
+
+Both are covered by integration tests. To run them, you need:
+
+* an initialised [cockroach](https://www.cockroachlabs.com/docs/stable/install-cockroachdb.html) node
+* create a user with name \<user>
+* create a database \<db>
+* grant all on  \<db> to \<user>
+
+Then run the tests with the following commands:
+
+```bash
+# Lock
+go test -v -coverprofile=/tmp/go-code-cover github.com/cloudtrust/go-jobs/lock -tags=integration --hostport=<host:port> --user=<user> --db=<db>
+
+# Status
+go test -v -coverprofile=/tmp/go-code-cover github.com/cloudtrust/go-jobs/status -tags=integration --hostport=<host:port> --user=<user> --db=<db>
+```
+
+[ci-img]: https://travis-ci.org/cloudtrust/go-jobs.svg?branch=master
+[ci]: https://travis-ci.org/cloudtrust/go-jobs
+[cov-img]: https://coveralls.io/repos/github/cloudtrust/go-jobs/badge.svg?branch=master
+[cov]: https://coveralls.io/github/cloudtrust/go-jobs?branch=master
+[godoc-img]: https://godoc.org/github.com/cloudtrust/go-jobs?status.svg
+[godoc]: https://godoc.org/github.com/cloudtrust/go-jobs
+[report-img]: https://goreportcard.com/badge/github.com/cloudtrust/go-jobs
+[report]: https://goreportcard.com/report/github.com/cloudtrust/go-jobs

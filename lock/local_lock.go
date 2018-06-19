@@ -5,11 +5,8 @@ import (
 	"sync"
 )
 
-type LocalLock struct {
-	mutex  *sync.Mutex
-	locked bool
-}
-
+// NewLocalLock returns a lock local, that is a lock that does not use the distributed Storage to assure
+// that only one instance of the job is running in the cluster.
 func NewLocalLock() *LocalLock {
 	return &LocalLock{
 		mutex:  &sync.Mutex{},
@@ -17,6 +14,13 @@ func NewLocalLock() *LocalLock {
 	}
 }
 
+// LocalLock is the local lock
+type LocalLock struct {
+	mutex  *sync.Mutex
+	locked bool
+}
+
+// Lock locks locally.
 func (l *LocalLock) Lock() error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
@@ -29,6 +33,7 @@ func (l *LocalLock) Lock() error {
 	return nil
 }
 
+// Unlock unlocks locally.
 func (l *LocalLock) Unlock() error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

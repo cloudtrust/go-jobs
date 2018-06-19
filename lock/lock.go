@@ -16,54 +16,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	createLocksTblStmt = `CREATE TABLE IF NOT EXISTS locks (
-		component_name STRING,
-		component_id STRING,
-		job_name STRING,
-		job_id STRING,
-		enabled BOOL,
-		status STRING,
-		lock_time TIMESTAMPTZ,
-		PRIMARY KEY (component_name, job_name))`
-	insertLockStmt = `INSERT INTO locks (
-		component_name,
-		component_id,
-		job_name,
-		job_id,
-		enabled,
-		status,
-		lock_time)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (component_name, job_name) DO NOTHING`
-	lockStmt = `UPDATE locks SET (
-		component_id,
-		job_id,
-		status,
-		lock_time) = ($1, $2, 'LOCKED', $3) 
-		WHERE (component_name = $4 AND job_name = $5 AND enabled = true AND status = 'UNLOCKED')`
-	forceLockStmt = `UPDATE locks SET (
-		component_id,
-		job_id,
-		status,
-		lock_time) = ($1, $2, 'LOCKED', $3)
-		WHERE (component_name = $4 AND job_name = $5 AND enabled = true)`
-	unlockStmt = `UPDATE locks SET (status) = ('UNLOCKED') WHERE (
-		component_name = $1 AND 
-		component_id = $2 AND 
-		job_name = $3 AND
-		job_id = $4)`
-	enableStmt = `UPDATE locks SET (enabled) = ($1) 
-		WHERE (component_name = $2 AND job_name = $3)`
-	selectLockStmt = `SELECT * FROM locks WHERE (component_name = $1 AND job_name = $2)`
-)
-
-// Lock is the locking module.
+// Lock is the locking module. 
 type Lock struct {
-	db DB
+	s Storage
 }
 
-// DB is the interface of the DB.
-type DB interface {
+// Storage is the interface of the database.
+type Storage interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 	QueryRow(query string, args ...interface{}) *sql.Row
 }
@@ -79,13 +38,21 @@ type table struct {
 }
 
 // New returns a new locking module.
-func New(db DB) *Lock {
+func New(s Storage) *Lock {
 	var l = &Lock{
-		db: db,
+		s: s,
 	}
 
 	// Init DB: create table and lock entry for job.
-	db.Exec(createLocksTblStmt)
+	s.Exec(`CREATE TABLE IF NOT EXISTS locks (
+		component_name STRING,
+		component_id STRING,
+		job_name STRING,
+		job_id STRING,
+		enabled BOOL,
+		status STRING,
+		lock_time TIMESTAMPTZ,
+		PRIMARY KEY (component_name, job_name))`)
 	return l
 }
 
@@ -132,14 +99,16 @@ func (l *Lock) Lock(componentName, componentID, jobName, jobID string, jobMaxDur
 			return &ErrDisabled{componentName: componentName, jobName: jobName}
 		case time.Now().After(lck.lockTime.Add(jobMaxDuration)):
 			// If the job exceed the job maxduration, we can force a lock.
-			stmt = forceLockStmt
+			stmt = `UPDATE locks SET (component_id, job_id, status, lock_time) = ($1, $2, 'LOCKED', $3)
+				WHERE (component_name = $4 AND job_name = $5 AND enabled = true)`
 		default:
-			stmt = lockStmt
+			stmt = `UPDATE locks SET (component_id, job_id,	status,	lock_time) = ($1, $2, 'LOCKED', $3) 
+				WHERE (component_name = $4 AND job_name = $5 AND enabled = true AND status = 'UNLOCKED')`
 		}
 	}
 
 	// Try locking.
-	l.db.Exec(stmt, componentID, jobID, time.Now().UTC(), componentName, jobName)
+	l.s.Exec(stmt, componentID, jobID, time.Now().UTC(), componentName, jobName)
 
 	// Check if we got the lock.
 	var lck, err = l.getTable(componentName, jobName)
@@ -161,7 +130,10 @@ func (l *Lock) Lock(componentName, componentID, jobName, jobID string, jobMaxDur
 func (l *Lock) Unlock(componentName, componentID, jobName, jobID string) error {
 	l.createRowIfNotExists(componentName, jobName)
 
-	l.db.Exec(unlockStmt, componentName, componentID, jobName, jobID)
+	const unlockStmt = `UPDATE locks SET (status) = ('UNLOCKED') 
+		WHERE (component_name = $1 AND component_id = $2 AND job_name = $3 AND job_id = $4)`
+
+	l.s.Exec(unlockStmt, componentName, componentID, jobName, jobID)
 
 	var lck, err = l.getTable(componentName, jobName)
 	switch {
@@ -176,11 +148,14 @@ func (l *Lock) Unlock(componentName, componentID, jobName, jobID string) error {
 	}
 }
 
+const enableStmt = `UPDATE locks SET (enabled) = ($1) 
+		WHERE (component_name = $2 AND job_name = $3)`
+
 // Enable enable the job. It sets the 'enabled' boolean to true for the current job.
 func (l *Lock) Enable(componentName, jobName string) error {
 	l.createRowIfNotExists(componentName, jobName)
 
-	var _, err = l.db.Exec(enableStmt, true, componentName, jobName)
+	var _, err = l.s.Exec(enableStmt, true, componentName, jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not enable job '%s'", componentName, jobName)
 	}
@@ -191,7 +166,7 @@ func (l *Lock) Enable(componentName, jobName string) error {
 func (l *Lock) Disable(componentName, jobName string) error {
 	l.createRowIfNotExists(componentName, jobName)
 
-	var _, err = l.db.Exec(enableStmt, false, componentName, jobName)
+	var _, err = l.s.Exec(enableStmt, false, componentName, jobName)
 	if err != nil {
 		return errors.Wrapf(err, "component '%s' could not disable job '%s'", componentName, jobName)
 	}
@@ -200,7 +175,9 @@ func (l *Lock) Disable(componentName, jobName string) error {
 
 // getTable returns the whole lock database entry for the current job.
 func (l *Lock) getTable(componentName, jobName string) (*table, error) {
-	var row = l.db.QueryRow(selectLockStmt, componentName, jobName)
+	const selectLockStmt = `SELECT * FROM locks WHERE (component_name = $1 AND job_name = $2)`
+
+	var row = l.s.QueryRow(selectLockStmt, componentName, jobName)
 	var (
 		cName, cID, jName, jID, status string
 		enabled                        bool
@@ -224,15 +201,25 @@ func (l *Lock) getTable(componentName, jobName string) (*table, error) {
 }
 
 func (l *Lock) createRowIfNotExists(componentName, jobName string) {
-	l.db.Exec(insertLockStmt, componentName, "", jobName, "", true, "UNLOCKED", time.Time{})
+	const insertLockStmt = `INSERT INTO locks (component_name, component_id, job_name, job_id, enabled, status, lock_time)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (component_name, job_name) DO NOTHING`
+
+	l.s.Exec(insertLockStmt, componentName, "", jobName, "", true, "UNLOCKED", time.Time{})
 }
 
 // NoopLocker is a lock that does nothing, it always accept lock requests. It should be used when no lock is required.
 type NoopLocker struct{}
 
+// Lock does nothing.
 func (l *NoopLocker) Lock(componentName, componentID, jobName, jobID string, jobMaxDuration time.Duration) error {
 	return nil
 }
+
+// Unlock does nothing.
 func (l *NoopLocker) Unlock(componentName, componentID, jobName, jobID string) error { return nil }
-func (l *NoopLocker) Enable(componentName, jobName string) error                     { return nil }
-func (l *NoopLocker) Disable(componentName, jobName string) error                    { return nil }
+
+// Enable does nothing.
+func (l *NoopLocker) Enable(componentName, jobName string) error { return nil }
+
+// Disable does nothing.
+func (l *NoopLocker) Disable(componentName, jobName string) error { return nil }

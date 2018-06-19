@@ -16,10 +16,9 @@ import (
 )
 
 var (
-	hostPort    = flag.String("hostport", "127.0.0.1:26257", "cockroach host:port")
-	user        = flag.String("user", "cockroach", "user name")
-	db          = flag.String("db", "jobs", "database name")
-	integration = flag.Bool("integration", false, "run the integration tests")
+	hostPort = flag.String("hostport", "127.0.0.1:26257", "cockroach host:port")
+	user     = flag.String("user", "cockroach", "user name")
+	db       = flag.String("db", "cockroach", "database name")
 )
 
 func TestNewStatus(t *testing.T) {
@@ -281,6 +280,22 @@ func TestFail(t *testing.T) {
 	assert.Zero(t, tbl.lastCompletedEnd)
 	assert.Equal(t, "", tbl.lastCompletedStepInfos)
 	assert.Equal(t, "", tbl.lastCompletedMessage)
+}
+
+func TestNoopStatus(t *testing.T) {
+	var (
+		componentName = "cmp"
+		componentID   = strconv.FormatUint(rand.Uint64(), 10)
+		jobName       = "job"
+		jobID         = strconv.FormatUint(rand.Uint64(), 10)
+	)
+
+	var s = &NoopStatusManager{}
+	assert.Nil(t, s.Start(componentName, componentID, jobName))
+	assert.Nil(t, s.Update(componentName, componentID, jobName, map[string]string{}))
+	assert.Nil(t, s.Complete(componentName, componentID, jobName, jobID, map[string]string{}, map[string]string{}))
+	assert.Nil(t, s.Complete(componentName, componentID, jobName, jobID, map[string]string{}, map[string]string{}))
+	assert.Nil(t, s.Fail(componentName, componentID, jobName, jobID, map[string]string{}, map[string]string{}))
 }
 
 func setupCleanDB(t *testing.T) *sql.DB {
