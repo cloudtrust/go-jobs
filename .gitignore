@@ -10,5 +10,10 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Output of debugger
+debug
+
 # Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
 .glide/
+vendor/
+.vscode/
